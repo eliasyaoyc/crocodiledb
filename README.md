@@ -1,2 +1,2 @@
 # pcache
-The proxy cache
+The proxy cache layer support hot key.
