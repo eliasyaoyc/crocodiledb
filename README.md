@@ -1,4 +1,3 @@
-# TwinsKV
+# CrocodileDB
 
-![](/doc/architecture.png)
 
