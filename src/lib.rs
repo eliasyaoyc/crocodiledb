@@ -1,8 +1,8 @@
+pub use engine::table::Table;
+
 mod error;
-mod storage;
 mod kv;
 mod config;
-mod types;
-mod bloom;
 mod tp;
 mod util;
+mod engine;

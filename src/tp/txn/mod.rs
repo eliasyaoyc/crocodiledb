@@ -1,3 +1,5 @@
+mod txn;
+
 pub(crate) enum Commands {
     Prewrite,
     Commit,
