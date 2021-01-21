@@ -1,35 +1,44 @@
-use crossbeam_channel::RecvError;
-use quick_error::quick_error;
+use std::io;
+use std::result;
+use thiserror::Error;
+use prost::DecodeError;
 
-quick_error! {
-   #[derive(Debug)]
-   pub enum Error {
-    NotFound(hint: Option<String>){
-          display("key seeking failed: {:?}",hint)
-      }
-    InvaildArgument(hint: String){
-          display("invalid argument: {}",hint)
-      }
-    DBClosed(hint: String) {
-          display("try to operate a closed db: {}",hint)
-      }
-    IO(err: std::io::Error) {
-          display("I/O operation error: {}", err)
-      }
-    RecvError(err: RecvError){
-          display("{:?}",err)
-          cause(err)
-      }
-   }
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Invalid Configuration: {0}")]
+    Config(String),
+    #[error("IO error: {0}")]
+    Io(#[source] Box<io::Error>),
+    #[error("Empty key")]
+    EmptyKey,
+    #[error("{0}")]
+    TooLong(String),
+    #[error("Invalid checksum")]
+    InvalidChecksum(String),
+    #[error("Invalid filename")]
+    InvalidFilename(String),
+    #[error("Invalid prost data: {0}")]
+    Decode(#[source] Box<prost::DecodeError>),
+    #[error("Invalid data: {0}")]
+    VarDecode(&'static str),
+    #[error("{0}")]
+    TableRead(String),
+    #[error("Database Closed")]
+    DBClosed,
+    #[error("{0}")]
+    LogRead(String),
 }
 
-macro_rules! map_io_res {
-    ($result:expr) => {
-        match $result {
-           Ok(v) => Ok(v),
-           Err(e) => Err(Error::IO(e)),
-        }
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(Box::new(e))
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+impl From<prost::DecodeError> for Error {
+    fn from(e: prost::DecodeError) -> Self {
+        Error::Decode(Box::new(e))
+    }
+}
+
+pub type Result<T> = result::Result<T, Error>;
