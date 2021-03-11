@@ -110,7 +110,7 @@ impl Node {
         }
     }
 
-    /// Fetches a value for a key, if it exists.
+    /// Returns a value for a key, if it exists.
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         match self {
             Self::Root(children) | Self::Inner(children) => children.get(key),
@@ -118,7 +118,7 @@ impl Node {
         }
     }
 
-    /// Fetches the first key/value pair, if any.
+    /// Returns the first key/value pair, if any.
     fn get_first(&self) -> Option<(Vec<u8>, Vec<u8>)> {
         match self {
             Self::Root(children) | Self::Inner(children) => children.get_first(),
@@ -126,7 +126,7 @@ impl Node {
         }
     }
 
-    /// Fetches the last key/value pair, if any.
+    /// Returns the last key/value pair, if any.
     fn get_last(&self) -> Option<(Vec<u8>, Vec<u8>)> {
         match self {
             Self::Root(children) | Self::Inner(children) => children.get_last(),
@@ -134,7 +134,7 @@ impl Node {
         }
     }
 
-    /// Fetches the next key/value pair after the given key.
+    /// Returns the next key/value pair after the given key.
     fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         match self {
             Self::Root(children) | Self::Inner(children) => children.get_next(key),
@@ -142,7 +142,7 @@ impl Node {
         }
     }
 
-    /// Fetches the previous key/value pair before the given key.
+    /// Returns the previous key/value pair before the given key.
     fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         match self {
             Self::Root(children) | Self::Inner(children) => children.get_prev(key),
@@ -191,6 +191,18 @@ impl Node {
     }
 }
 
+/// Root node and inner node children. The child set (node) determines the maximum number of
+/// child nodes, which is tracked via the interval vector capacity. Derefs to the child node vector.
+///
+/// The keys are used to guide lookups. There is always one key less than children, where the key at
+/// index 1 (and all keys up to the one at i+1) is contained within the child at index i+1.
+///
+/// For example:
+///
+/// Index   Keys  Nodes
+/// 0       d     a=1,b=2,c=3        Keys:                d         f
+/// 1       f     d=4,e=5            Node:    a=1,b=2,c=3 | d=4,e=5 | f=6,g=7
+/// 2             f=6,g=7
 #[derive(Debug, Default, PartialEq)]
 struct Children {
     keys: Vec<Vec<u8>>,
@@ -225,47 +237,89 @@ impl Children {
     }
 
     /// Deletes a key from the children, if it exists.
-    fn delete(&mut self, key: &[u8]) {}
+    fn delete(&mut self, key: &[u8]) {
+        if self.is_empty() {
+            return;
+        }
 
-    /// Fetches a value for a key, if it exists.
+
+        // Delete the key in the relevant child.
+        let (i, child) = self.lookup_mut(key);
+        child.delete(key);
+
+        // If the child dose not underflow, or it has no siblings, we're done.
+        if child.size() >= (child.capacity() + 1) / 2 || self.len() == 1 {
+            return;
+        }
+
+        // Attempt to rotate or merge with the left or right siblings.
+        let (siz, cap) = (self[i].size(), self[i].capacity());
+        let (lsiz, lcap) = if i > 0 {
+            (self[i - 1].size(), self[i - 1].capacity())
+        } else {
+            (0, 0)
+        };
+
+        let (rsiz, rcap) = if i < self.len() - 1 {
+            (self[i + 1].size(), self[i + 1].capacity())
+        } else {
+            (0, 0)
+        };
+
+        if lsiz > (lcap + 1) / 2 {
+            self.rotate_right(i - 1);
+        } else if rsiz > (rcap + 1) / 2 {
+            self.rotate_left(i + 1);
+        } else if lsiz + siz <= lcap {
+            self.merge(i - 1);
+        } else if rsiz + siz <= cap {
+            self.merge(i);
+        }
+    }
+
+    /// Returns a value for a key, if it exists.
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        None
+        if self.is_empty() {
+            None
+        } else {
+            self.lookup(key).1.get(key)
+        }
     }
 
-    /// Fetches the first key/value pair, if any.
+    /// Returns the first key/value pair, if any.
     fn get_first(&self) -> Option<(Vec<u8>, Vec<u8>)> {
-        None
+        self.nodes.first().and_then(|n| n.get_first())
     }
 
-    /// Fetches the last key/value pair, if any.
+    /// Returns the last key/value pair, if any.
     fn get_last(&self) -> Option<(Vec<u8>, Vec<u8>)> {
-        None
+        self.nodes.last().and_then(|n| n.get_last())
     }
 
-    /// Fetches the next key/value pair after the given key, if it exists.
+    /// Returns the next key/value pair after the given key, if it exists.
     fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         None
     }
 
-    /// Fetches the previous key/value pair before the given key, if it exists.
+    /// Returns the previous key/value pair before the given key, if it exists.
     fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         None
     }
 
     /// Looks up the child responsible for a given key. This can only be called on non-empty
     /// child sets, which should be all child sets except for the initial root node.
-    // fn lookup(&self, key: &[u8]) -> (usize, &Node) {
-    //     let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
-    //     (i, &self[i])
-    // }
+    fn lookup(&self, key: &[u8]) -> (usize, &Node) {
+        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
+        (i, &self[i])
+    }
 
     /// Looks up the child responsible for a given key, and returns a mutable reference to it. This
     /// can only be called on non-empty child sets, which should be all child sets except for the
     /// initial root node.
-    // fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
-    //     let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
-    //     (i, &mut self[i])
-    // }
+    fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
+        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
+        (i, &mut self[i])
+    }
 
     /// Merges the node at index i with it's right sibling.
     fn merge(&mut self, i: usize) {}
@@ -314,27 +368,27 @@ impl Values {
     /// Deletes a key from the set, if it exists.
     fn delete(&mut self, key: &[u8]) {}
 
-    /// Fetches a value from the set, if the key exists.
+    /// Returns a value from the set, if the key exists.
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         None
     }
 
-    /// Fetches the first key/value pair from the set, if any.
+    /// Returns the first key/value pair from the set, if any.
     fn get_first(&self) -> Option<(Vec<u8>, Vec<u8>)> {
         self.0.first().cloned()
     }
 
-    /// Fetches the last key/value pair from the set, if any.
+    /// Returns the last key/value pair from the set, if any.
     fn get_last(&self) -> Option<(Vec<u8>, Vec<u8>)> {
         self.0.last().cloned()
     }
 
-    /// Fetches the next value after the given key, if it exists.
+    /// Returns the next value after the given key, if it exists.
     fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         None
     }
 
-    /// Fetches the previous value before the given key, if it exists.
+    /// Returns the previous value before the given key, if it exists.
     fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         None
     }
