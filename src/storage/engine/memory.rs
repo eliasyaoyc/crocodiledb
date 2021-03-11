@@ -158,6 +158,7 @@ impl Node {
                 // Set the key/value pair in the children. If the children split, create a new
                 // child set for the root node with two new inner nodes for the split children.
                 if let Some((split_key, split_children)) = children.set(key, value) {
+                    // If the children split, we should rebuild the root node,so the next step is to insert the old root node and insert split node.
                     let mut root_children = Children::new(children.capacity());
                     root_children.keys.push(split_key);
                     root_children
