@@ -1,16 +1,10 @@
-mod bloom;
-mod levels;
-pub mod table;
-mod checksum;
-mod error;
-mod wal;
-mod skl;
-
+mod lsm;
+mod memory;
 
 /// Rewrite the golang sort.search.
 pub fn search<F>(n: usize, mut f: F) -> usize
-    where
-        F: FnMut(usize) -> bool
+where
+    F: FnMut(usize) -> bool,
 {
     let mut i = 0;
     let mut j = n;

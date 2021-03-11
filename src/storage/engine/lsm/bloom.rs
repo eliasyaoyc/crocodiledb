@@ -1,4 +1,4 @@
-use bytes::{Bytes, BytesMut, BufMut};
+use bytes::{BufMut, Bytes, BytesMut};
 
 pub trait BitSlice {
     fn get_bit(&self, idx: usize) -> bool;
@@ -106,7 +106,6 @@ impl<'a> Bloom<'a> {
     }
 }
 
-
 #[test]
 fn test_small_bloom_filter() {
     let hash: Vec<u32> = vec![b"hello".to_vec(), b"world".to_vec()]
@@ -120,7 +119,10 @@ fn test_small_bloom_filter() {
         b"world".to_vec(),
         b"x".to_vec(),
         b"fool".to_vec(),
-    ].into_iter().map(|x| farmhash::fingerprint32(&x)).collect();
+    ]
+    .into_iter()
+    .map(|x| farmhash::fingerprint32(&x))
+    .collect();
 
     let f = Bloom::new(&buf);
     assert_eq!(f.k, 6);

@@ -1,6 +1,7 @@
-use thiserror::Error;
-use std::io;
 use prost::DecodeError;
+use std::io;
+use std::sync::{PoisonError, RwLockReadGuard};
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -24,6 +25,10 @@ pub enum Error {
     DBClose,
     #[error("{0}")]
     LogRead(String),
+    #[error("capacity must be at least 2")]
+    ParamCapacityrErr,
+    #[error("{0}")]
+    InternalErr(String),
 }
 
 impl From<io::Error> for Error {
@@ -38,4 +43,10 @@ impl From<prost::DecodeError> for Error {
     }
 }
 
-pub type IResult<T> = std::result::Result<T, Error>;
+impl<T> From<PoisonError<T>> for Error {
+    fn from(e: PoisonError<T>) -> Self {
+        Self::InternalErr(e.to_string())
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

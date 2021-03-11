@@ -1,7 +1,7 @@
 mod engine;
-mod types;
-mod mvcc;
 mod error;
+mod mvcc;
 mod storage;
+mod types;
 
 pub use storage::Storage;

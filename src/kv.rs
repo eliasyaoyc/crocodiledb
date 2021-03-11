@@ -1,3 +1,1 @@
-pub trait Kv {
-
-}
+pub trait Kv {}

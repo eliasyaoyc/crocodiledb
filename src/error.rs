@@ -1,7 +1,7 @@
+use prost::DecodeError;
 use std::io;
 use std::result;
 use thiserror::Error;
-use prost::DecodeError;
 
 #[derive(Debug, Error)]
 pub enum Error {
