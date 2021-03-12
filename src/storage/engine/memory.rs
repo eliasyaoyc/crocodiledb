@@ -1,11 +1,12 @@
 use crate::storage::error::Error::ParamCapacityrErr;
 use crate::storage::error::{Error, Result};
 use crate::storage::storage::{Range, Scan};
+use crate::storage::types::Value;
 use crate::storage::Storage;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem::replace;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Bound, Deref, DerefMut};
 use std::sync::{Arc, RwLock};
 
 /// The default B+tree capacity, i.e maximum number of children per node.
@@ -21,7 +22,7 @@ const DEFAULT_CAPACITY: usize = 8;
 /// the sibling leaf nodes. Iterators traversal is instead done via lookups from the root node. This
 /// has O(log n) complexity rather than O(1) for iterators, but is left as a future performance
 /// optimization if it is shown to be necessary.
-/// TODO added leaf nodes has pointers to the sibling leaf nods, and optimize iterator traversal performance.
+/// FIXME added leaf nodes has pointers to the sibling leaf nods, and optimize iterator traversal performance.
 pub struct Memory {
     /// The tree node , guarded by an RwLock to support multiple iterators across it.
     root: Arc<RwLock<Node>>,
@@ -242,7 +243,6 @@ impl Children {
             return;
         }
 
-
         // Delete the key in the relevant child.
         let (i, child) = self.lookup_mut(key);
         child.delete(key);
@@ -298,18 +298,48 @@ impl Children {
 
     /// Returns the next key/value pair after the given key, if it exists.
     fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-        None
+        if self.is_empty() {
+            return None;
+        }
+        // First, look in the child responsible for the given key.
+        let (i, child) = self.lookup(key);
+        if let Some(item) = child.get_next(key) {
+            Some(item)
+        } else if i < self.len() - 1 {
+            // Otherwise, try the next child.
+            self[i + 1].get_next(key)
+        } else {
+            // Do not have it.
+            None
+        }
     }
 
     /// Returns the previous key/value pair before the given key, if it exists.
     fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-        None
+        if self.is_empty() {
+            return None;
+        }
+        // First, look in the child responsible for the given key.
+        let (i, child) = self.lookup(key);
+        if let Some(item) = child.get_prev(key) {
+            Some(item)
+        } else if i > 0 {
+            // Otherwise, try the previous child.
+            self[i - 1].get_prev(key)
+        } else {
+            // Do not have it.
+            None
+        }
     }
 
     /// Looks up the child responsible for a given key. This can only be called on non-empty
     /// child sets, which should be all child sets except for the initial root node.
     fn lookup(&self, key: &[u8]) -> (usize, &Node) {
-        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
+        let i = self
+            .keys
+            .iter()
+            .position(|k| k.deref() > key)
+            .unwrap_or_else(|| self.keys.len());
         (i, &self[i])
     }
 
@@ -317,26 +347,188 @@ impl Children {
     /// can only be called on non-empty child sets, which should be all child sets except for the
     /// initial root node.
     fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
-        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
+        let i = self
+            .keys
+            .iter()
+            .position(|k| k.deref() > key)
+            .unwrap_or_else(|| self.keys.len());
         (i, &mut self[i])
     }
 
     /// Merges the node at index i with it's right sibling.
-    fn merge(&mut self, i: usize) {}
+    /// TODO How to do if after merged that the newest node capacity gather than limited？
+    fn merge(&mut self, i: usize) {
+        // First,delete related index,prevent other requests called.
+        let parent_key = self.keys.remove(i);
+        let right = &mut self.remove(i + 1);
+        let left = &mut self[i];
+        match (left, right) {
+            (Node::Inner(lc), Node::Inner(rc)) => {
+                lc.keys.push(parent_key);
+                lc.keys.append(&mut rc.keys);
+                lc.nodes.append(&mut rc.nodes);
+            }
+            (Node::Leaf(lv), Node::Leaf(rv)) => lv.append(rv),
+            // Root node can't merge.
+            (left, right) => panic!("Can't merge {:?} and {:?}", left, right),
+        }
+    }
 
-    fn rebalance(&mut self) {}
     /// Rotates children to the left, by transferring items from the node at the given index to
     /// its left sibling and adjusting the separator key.
-    fn rotate_left(&mut self, i: usize) {}
+    ///     Balanced              insert 3, non-balanced             左旋, Balanced
+    ///         8                          8                              8
+    ///       /   \                      /  \                           /  \
+    ///      7     10                   7   10                         7   13
+    ///             \                         \                           /  \
+    ///              13                       13                         10  15
+    ///                                         \
+    ///                                         15
+    fn rotate_left(&mut self, i: usize) {
+        if matches!(self[i], Node::Inner(_)) {
+            let (key, node) = match &mut self[i] {
+                Node::Inner(c) => (c.keys.remove(0), c.nodes.remove(0)),
+                n => panic!("Left rotation from unexpected node {:?}", n),
+            };
+            // key = keys[i-1]
+            let key = replace(&mut self.keys[i - 1], key); // rotate separator key
+            match &mut self[i - 1] {
+                Node::Inner(c) => {
+                    c.keys.push(key);
+                    c.nodes.push(node);
+                }
+                n => panic!("Left rotation into unexpected node {:?}", n),
+            }
+        } else if matches!(self[i], Node::Leaf(_)) {
+            let (sep_key, (key, value)) = match &mut self[i] {
+                Node::Leaf(v) => (v[1].0.clone(), v.remove(0)),
+                n => panic!("Left rotation from unexpected node {:?}", n),
+            };
+            self.keys[i - 1] = sep_key;
+            match &mut self[i - 1] {
+                Node::Leaf(v) => v.push((key, value)),
+                n => panic!("Left rotation into unexpected node {:?}", n),
+            }
+        } else {
+            panic!("Root node don't known how to rotate node {:?}", self[i])
+        }
+    }
 
     /// Rotates children to the right, by transferring items from the node at the given index to
     /// its right sibling and adjusting the separator key.
-    fn rotate_right(&mut self, i: usize) {}
+    ///     Balanced              insert 3, non-balanced             右旋, Balanced
+    ///         8                          8                              8
+    ///       /   \                      /  \                           /  \
+    ///      7     10                   7   10                         5   10
+    ///     /                          /                              / \
+    ///    5                          5                             3    7
+    ///                              /
+    ///                             3
+    fn rotate_right(&mut self, i: usize) {
+        if matches!(self[i], Node::Inner(_)) {
+            let (key, node) = match &mut self[i] {
+                Node::Inner(c) => (c.keys.pop().unwrap(), c.nodes.pop().unwrap()),
+                n => panic!("Right rotation from expected node {:?}", n),
+            };
+            let key = replace(&mut self.keys[i], key); // rotation separator key
+            match &mut self[i + 1] {
+                Node::Inner(c) => {
+                    c.keys.insert(0, key);
+                    c.nodes.insert(0, node);
+                }
+                n => panic!("Right rotation into unexpected node {:?}", n),
+            }
+        } else if matches!(self[i], Node::Leaf(_)) {
+            let (key, value) = match &mut self[i] {
+                Node::Leaf(v) => v.pop().unwrap(),
+                n => panic!("Right rotation from expected node {:?}", n),
+            };
+            self.keys[i] = key.clone();
+            match &mut self[i + 1] {
+                Node::Leaf(v) => v.insert(0, (key, value)),
+                n => panic!("Right rotation into unexpected node {:?}", n),
+            }
+        } else {
+            panic!("Root node don't known how to rotate node {:?}", self[i]);
+        }
+    }
 
     /// Sets a key to a value in the children, delegating to the child responsible. If the node
     /// splits, returns the split key and new (right) node.
     fn set(&mut self, key: &[u8], value: Vec<u8>) -> Option<(Vec<u8>, Children)> {
-        None
+        // From empty child sets, just create a new leaf node for the key.
+        if self.is_empty() {
+            let mut values = Values::new(self.capacity());
+            values.push((key.to_vec(), value));
+            self.push(Node::Leaf(values));
+            return None;
+        }
+
+        // Find the child and insert the value into it. If the child splits, try to insert the
+        // new right node into this child set.
+        let (i, child) = self.lookup_mut(key);
+        if let Some((split_key, split_child)) = child.set(key, value) {
+            // The split child should be insert next to the original target.
+            let insert_at = i + 1;
+
+            // If the child set has room,just insert the split child into it. Recall that key
+            // indicates are one less than child nodes.
+            if self.len() < self.capacity() {
+                self.keys.insert(insert_at - 1, split_key.to_vec());
+                self.nodes.insert(insert_at, split_child);
+                return None;
+            }
+
+            // If the set is full, we need to split it and return the right node. The split-off
+            // right child node goes after the original target node. We split the node in the
+            // middle, but if we're inserting after the split point we move the split point by one
+            // to help balance splitting of odd-ordered nodes.
+            let mut split_at = self.len() / 2;
+            if insert_at >= split_at {
+                split_at += 1;
+            }
+
+            // Split the existing children and keys into two parts. The left parts will now have an
+            // equal number of keys and children, where the last key points to the first node in
+            // the right children. This key will either have to be promoted to a split key, or
+            // moved to the right keys, but keeping it here makes the arithmetic somewhat simpler.
+            let mut rkeys = Vec::with_capacity(self.keys.capacity());
+            let mut rnodes = Vec::with_capacity(self.nodes.capacity());
+            // The key and node that need to be split.
+            rkeys.extend(self.keys.drain((self.keys.len() - rnodes.len() + 1)..));
+            rnodes.extend(self.nodes.drain(split_at..));
+
+            // Insert the split node and split key. Since the key is always at one index less than
+            // the child, the may end up in different halves in which case the split key will be
+            // promoted to a split key and the extra key from the left half is move to the right
+            // half. Otherwise, the extra key from the left half becomes the split key.
+            let split_key = match insert_at.cmp(&self.nodes.len()) {
+                Ordering::Greater => {
+                    rkeys.insert(insert_at - 1 - self.keys.len(), split_key);
+                    rnodes.insert(insert_at - 1 - self.nodes.len(), split_child);
+                    self.keys.remove(self.keys.len() - 1)
+                }
+                Ordering::Equal => {
+                    rkeys.insert(0, self.keys.remove(self.keys.len() - 1));
+                    rnodes.insert(0, split_child);
+                    split_key
+                }
+                Ordering::Less => {
+                    self.keys.insert(insert_at - 1, split_key);
+                    self.nodes.insert(insert_at, split_child);
+                    self.keys.remove(self.keys.len() - 1)
+                }
+            };
+            Some((
+                split_key,
+                Children {
+                    keys: rkeys,
+                    nodes: rnodes,
+                },
+            ))
+        } else {
+            None
+        }
     }
 }
 
@@ -361,16 +553,32 @@ impl DerefMut for Values {
 
 impl Values {
     /// Creates a new value set with the given order (maximum capacity).
-    fn new(order: usize) -> Self {
-        Self(Vec::with_capacity(order))
+    fn new(capacity: usize) -> Self {
+        Self(Vec::with_capacity(capacity))
     }
 
     /// Deletes a key from the set, if it exists.
-    fn delete(&mut self, key: &[u8]) {}
+    fn delete(&mut self, key: &[u8]) {
+        for (i, (k, _)) in self.iter().enumerate() {
+            match (&**k).cmp(key) {
+                Ordering::Greater => break,
+                Ordering::Equal => {
+                    self.remove(i);
+                    break;
+                }
+                Ordering::Less => {}
+            }
+        }
+    }
 
     /// Returns a value from the set, if the key exists.
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        None
+        self.iter()
+            .find_map(|(k, v)| match (&**k).cmp(key) {
+                Ordering::Equal => Some(Some(v.to_vec())),
+                _ => Some(None),
+            })
+            .flatten()
     }
 
     /// Returns the first key/value pair from the set, if any.
@@ -385,29 +593,86 @@ impl Values {
 
     /// Returns the next value after the given key, if it exists.
     fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-        None
+        self.iter()
+            .find_map(|(k, v)| match (&**k).cmp(key) {
+                Ordering::Greater => Some(Some((k.to_vec(), v.to_vec()))),
+                _ => Some(None),
+            })
+            .flatten()
     }
 
     /// Returns the previous value before the given key, if it exists.
     fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-        None
+        self.iter()
+            .rev()
+            .find_map(|(k, v)| match (&**k).cmp(key) {
+                Ordering::Less => Some(Some((k.to_vec(), v.to_vec()))),
+                _ => Some(None),
+            })
+            .flatten()
     }
 
     /// Sets a key to a value, inserting of updating it. If the value set is full, it is split
     /// in the middle and the split key and right values are returned.
     fn set(&mut self, key: &[u8], value: Vec<u8>) -> Option<(Vec<u8>, Values)> {
-        None
+        // Find the position to insert at, or if the key already exists just update it.
+        let mut insert_at = self.len();
+        for (i, (k, v)) in self.iter_mut().enumerate() {
+            match (&**k).cmp(key) {
+                Ordering::Greater => {
+                    insert_at = i;
+                    break;
+                }
+                Ordering::Equal => {
+                    *v = value;
+                    return None;
+                }
+                Ordering::Less => {}
+            }
+        }
+
+        // If we have capacity, just insert the value.
+        if self.len() < self.capacity() {
+            self.insert(insert_at, (key.to_vec(), value));
+            return None;
+        }
+
+        // If we're full, split in the middle and return split key and right values. If inserting
+        // to the right of the split, move split by one to better balance add-ordered nodes.
+        let mut split_at = self.len() / 2;
+        if insert_at >= split_at {
+            split_at += 1;
+        }
+        let mut rvalues = Values::new(self.capacity());
+        rvalues.extend(self.drain(split_at..));
+        if insert_at >= self.len() {
+            rvalues.insert(insert_at - self.len(), (key.to_vec(), value));
+        } else {
+            self.insert(insert_at, (key.to_vec(), value));
+        }
+        Some((rvalues[0].0.clone(), rvalues))
     }
 }
 
+/// A key range scan.
+/// FIXME This is O(log n),and should use the normal B+tree approach of storing pointers in
+/// the leaf nodes instead, detail: Iterators are currently rather hacky and inefficient,
+/// and e.g. use O(log n) lookups per next() call (B+tree and MVCC) or buffer all results (Raft and SQL engines).
+/// Ideally, iterators should have O(1) complexity when calling next(), stream all results (with some amount of IO buffering),
+/// and don't hold read borrows to the entire data structure for the lifetime of the iterator.
 struct Iter {
+    /// The root node of the tree we're iterating across.
     root: Arc<RwLock<Node>>,
+    /// The range we're iterating over.
     range: Range,
+    /// The front cursor keeps track of the last returned value from the front.
     front_cursor: Option<Vec<u8>>,
+    /// The back cursor keeps track of the last returned value from the back.
     back_cursor: Option<Vec<u8>>,
 }
 
 impl Iter {
+    /// Creates a new iterator.
     fn new(root: Arc<RwLock<Node>>, range: Range) -> Self {
         Self {
             root,
@@ -418,11 +683,62 @@ impl Iter {
     }
 
     fn try_next(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
-        Ok(None)
+        let root = self.root.read()?;
+        let next = match &self.front_cursor {
+            None => match &self.range.start {
+                Bound::Included(k) => root
+                    .get(k)
+                    .map(|v| (k.clone(), v))
+                    .or_else(|| root.get_next(k)),
+                Bound::Excluded(k) => root.get_next(k),
+                Bound::Unbounded => root.get_first(),
+            },
+            Some(k) => root.get_next(k),
+        };
+
+        if let Some((k, _)) = &next {
+            if !self.range.contains(k) {
+                return Ok(None);
+            }
+            if let Some(bc) = &self.back_cursor {
+                if bc <= k {
+                    return Ok(None);
+                }
+            }
+            self.front_cursor = Some(k.clone())
+        }
+        Ok(next)
     }
 
     fn try_next_back(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
-        Ok(None)
+        let root = self.root.read()?;
+        let prev = match &self.back_cursor {
+            None => match &self.range.end {
+                Bound::Included(k) => root
+                    .get(k)
+                    .map(|v| (k.clone(), v))
+                    .or_else(|| root.get_prev(k)),
+                Bound::Excluded(k) => root.get_prev(k),
+                Bound::Unbounded => root.get_last(),
+            },
+
+            Some(k) => root.get_prev(k),
+        };
+
+        if let Some((k, _)) = &prev {
+            if !self.range.contains(k) {
+                return Ok(None);
+            }
+            if let Some(fc) = &self.front_cursor {
+                if fc >= k {
+                    return Ok(None);
+                }
+            }
+
+            self.back_cursor = Some(k.clone())
+        }
+
+        Ok(prev)
     }
 }
 
@@ -442,8 +758,27 @@ impl DoubleEndedIterator for Iter {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::storage::storage::TestSuite;
+
+    impl TestSuite<Memory> for Memory {
+        fn setup() -> Result<Self> {
+            Ok(Memory::new())
+        }
+    }
+
     #[test]
-    fn is_work() {
-        println!("11");
+    fn test() -> Result<()> {
+        Memory::test()
+    }
+
+    #[test]
+    fn t_set_split() -> Result<()> {
+        Ok(())
+    }
+
+    #[test]
+    fn t_delete_merge() -> Result<()> {
+        Ok(())
     }
 }
