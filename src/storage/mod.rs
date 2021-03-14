@@ -4,4 +4,4 @@ mod mvcc;
 mod storage;
 mod types;
 
-pub use storage::{Storage,Scan,Range};
+pub use storage::{Range, Scan, Storage};

@@ -29,6 +29,8 @@ pub enum Error {
     ParamCapacityrErr,
     #[error("{0}")]
     InternalErr(String),
+    #[error("{0}")]
+    InternalTnx(String),
 }
 
 impl From<io::Error> for Error {

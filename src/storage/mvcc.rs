@@ -1,12 +1,13 @@
+use crate::storage::error::{Error, Result};
 use crate::storage::Storage;
-use std::sync::{Arc, RwLock};
-use crate::storage::error::{Result, Error};
-use std::collections::HashSet;
-use std::borrow::Cow;
-use std::iter::Peekable;
 use serde::{Deserialize, Serialize};
 use serde_derive::{Deserialize, Serialize};
-use std::ops::RangeBounds;
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::iter::Peekable;
+use std::ops::{Bound, RangeBounds};
+use std::option::Option::Some;
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 /// The status of mvcc
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -33,7 +34,9 @@ impl Clone for MVCC {
 impl MVCC {
     /// Creates a new MVCC key-value store with the given key-value store for storage.
     pub fn new(storage: Box<dyn Storage>) -> Self {
-        Self { storage: Arc::new(RwLock::new(storage)) }
+        Self {
+            storage: Arc::new(RwLock::new(storage)),
+        }
     }
 
     /// Begins a new transaction in read-write mode.
@@ -108,10 +111,52 @@ pub struct Transaction {
 
 impl Transaction {
     /// Begins a new transaction in the given mode.
-    fn begin(storage: Arc<RwLock<Box<dyn Storage>>>, mode: Mode) -> Result<Self> {}
+    fn begin(storage: Arc<RwLock<Box<dyn Storage>>>, mode: Mode) -> Result<Self> {
+        let mut session = storage.write()?;
+
+        let id = match session.get(&Key::TxnNext.encode())? {
+            Some(ref v) => deserialize(v)?,
+            None => 1,
+        };
+        session.set(&Key::TxnNext.encode(), serialize(&(id + 1))?)?;
+        session.set(&Key::TxnActive(id).encode(), serialize(&mode)?)?;
+
+        // We always take a new snapshot, even for snapshot transaction, because all transactions
+        // increment the transaction Id and we need to properly record currently active transactions
+        // for any future snapshot transactions looking at this one.
+        let mut snapshot = Snapshot::take(&mut session, id)?;
+        drop(session);
+        if let Mode::Snapshot { version } = &mode {
+            snapshot = Snapshot::restore(&storage.read()?, *version)?
+        }
+        Ok(Self {
+            storage,
+            id,
+            mode,
+            snapshot,
+        })
+    }
 
     /// Resumes an active transaction with the given Id, Errors if the transaction is not active.
-    fn resume(storage: Arc<RwLock<Box<dyn Storage>>>, id: u64) -> Result<Self> {}
+    fn resume(storage: Arc<RwLock<Box<dyn Storage>>>, id: u64) -> Result<Self> {
+        let session = storage.read()?;
+        let mode = match session.get(&Key::TxnActive(id).encode())? {
+            Some(ref v) => deserialize(v)?,
+            None => return Err(Error::InternalTnx("No active transaction".into())),
+        };
+        let snapshot = match &mode {
+            Mode::Snapshot { version } => Snapshot::restore(&session, *version)?,
+            _ => Snapshot::restore(&session, id)?,
+        };
+        drop(session);
+
+        Ok(Self {
+            storage,
+            id,
+            mode,
+            snapshot,
+        })
+    }
 
     /// Commits the transaction, by removing the txn from the active set.
     pub fn commit(self) -> Result<()> {
@@ -122,7 +167,33 @@ impl Transaction {
     }
 
     /// Rolls back the transaction, by removing all updated entries.
-    pub fn rollback(self) -> Result<()> {}
+    pub fn rollback(self) -> Result<()> {
+        let mut session = self.storage.write()?;
+        if self.mode.mutable() {
+            let mut rollback = Vec::new();
+            let mut scan = session.scan(crate::storage::Range::from(
+                Key::TxnUpdate(self.id, vec![].into()).encode()
+                    ..Key::TxnUpdate(self.id + 1, vec![].into()).encode(),
+            ));
+            while let Some((key, _)) = scan.next().transpose()? {
+                match Key::decode(&key)? {
+                    Key::TxnUpdate(_, update_key) => rollback.push(update_key.into_owned()),
+                    k => {
+                        return Err(Error::InternalTnx(format!(
+                            "Expected TxnUpdate, got {:?}",
+                            k
+                        )));
+                    }
+                };
+                rollback.push(key);
+            }
+            drop(scan);
+            for key in rollback.into_iter() {
+                session.delete(&key)?;
+            }
+        }
+        session.delete(&Key::TxnActive(self.id).encode())
+    }
 
     /// Delete a key. Instead of actually deleting, let the null value make the key
     /// call the tombstone message. The background thread compresses periodically to
@@ -132,13 +203,75 @@ impl Transaction {
     }
 
     /// Returns a key.
-    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {}
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let session = self.storage.read()?;
+        let mut scan = session
+            .scan(crate::storage::Range::from(
+                Key::Record(key.into(), 0).encode()..=Key::Record(key.into(), self.id).encode(),
+            ))
+            .rev();
+        while let Some((k, v)) = scan.next().transpose()? {
+            match Key::decode(&k)? {
+                Key::Record(_, version) => {
+                    if self.snapshot.is_visible(version) {
+                        return deserialize(&v)?;
+                    }
+                }
+                k => {
+                    return Err(Error::InternalTnx(format!(
+                        "Expected Txn::Record, got {:?}",
+                        k
+                    )));
+                }
+            };
+        }
+        Ok(None)
+    }
 
     /// Scans a key range.
-    pub fn scan(&self, range: impl RangeBounds<Vec<u8>>) -> Result<crate::storage::Scan> {}
+    pub fn scan(&self, range: impl RangeBounds<Vec<u8>>) -> Result<crate::storage::Scan> {
+        let start = match range.start_bound() {
+            Bound::Excluded(k) => Bound::Excluded(Key::Record(k.into(), std::u64::MAX).encode()),
+            Bound::Included(k) => Bound::Included(Key::Record(k.into(), 0).encode()),
+            Bound::Unbounded => Bound::Included(Key::Record(vec![].into(), 0).encode()),
+        };
+        let end = match range.end_bound() {
+            Bound::Excluded(k) => Bound::Excluded(Key::Record(k.into(), 0).encode()),
+            Bound::Included(k) => Bound::Included(Key::Record(k.into(), std::u64::MAX).encode()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let scan = self
+            .storage
+            .read()?
+            .scan(crate::storage::Range::from((start, end)));
+        Ok(Box::new(Scan::new(scan, self.snapshot.clone())))
+    }
 
     /// Scans keys under a given prefix.
-    pub fn scan_prefix(&self, prefix: &[u8]) -> Result<crate::storage::Range> {}
+    pub fn scan_prefix(&self, prefix: &[u8]) -> Result<crate::storage::Scan> {
+        if prefix.is_empty() {
+            return Err(Error::InternalErr("Scan prefix cannot be empty".into()));
+        }
+        let start = prefix.to_vec();
+        let mut end = start.clone();
+        for i in (0..end.len()).rev() {
+            match end[i] {
+                // if all 0xff we could in principle use Range::Unbounded,but it won't happen
+                0xff if i == 0 => {
+                    return Err(Error::InternalErr("Invalid prefix scan range".into()));
+                }
+                0xff => {
+                    end[i] = 0x00;
+                    continue;
+                }
+                v => {
+                    end[i] = v + 1;
+                    break;
+                }
+            }
+        }
+        self.scan(start..end)
+    }
 
     /// Set a key
     pub fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
@@ -146,7 +279,51 @@ impl Transaction {
     }
 
     /// Writes a value for key. None is tombstone message is used for deletion.
-    fn write(&self, key: &[u8], value: Option<Vec<u8>>) -> Result<()> {}
+    fn write(&self, key: &[u8], value: Option<Vec<u8>>) -> Result<()> {
+        if !self.mode.mutable() {
+            return Err(Error::InternalTnx("Read-only transaction".into()));
+        }
+
+        let mut session = self.storage.write()?;
+
+        let min = self
+            .snapshot
+            .invisible
+            .iter()
+            .min()
+            .cloned()
+            .unwrap_or(self.id + 1);
+        let mut scan = session
+            .scan(crate::storage::Range::from(
+                Key::Record(key.into(), min).encode()
+                    ..=Key::Record(key.into(), std::u64::MAX).encode(),
+            ))
+            .rev();
+        while let Some((k, v)) = scan.next().transpose()? {
+            match Key::decode(&k)? {
+                Key::Record(_, version) => {
+                    if !self.snapshot.is_visible(version) {
+                        return Err(Error::InternalTnx(
+                            "Serialization failure, retry transaction".into(),
+                        ));
+                    }
+                }
+                k => {
+                    return Err(Error::InternalTnx(format!(
+                        "Expected Txn::Record, got {:?}",
+                        k
+                    )));
+                }
+            };
+        }
+        drop(scan);
+
+        // Write the key and its update record.
+        let key = Key::Record(key.into(), self.id).encode();
+        let update = Key::TxnUpdate(self.id, (&key).into()).encode();
+        session.set(&update, vec![])?;
+        session.set(&key, serialize(&value)?)
+    }
 
     #[inline]
     pub fn id(&self) -> u64 {
@@ -207,7 +384,55 @@ struct Snapshot {
     invisible: HashSet<u64>,
 }
 
-impl Snapshot {}
+impl Snapshot {
+    /// Takes a new snapshot, persisting it as `key::TxnSnapshot(version)`.
+    fn take(session: &mut RwLockWriteGuard<Box<dyn Storage>>, version: u64) -> Result<Self> {
+        let mut snapshot = Self {
+            version,
+            invisible: Default::default(),
+        };
+        let mut scan = session.scan(crate::storage::Range::from(
+            Key::TxnActive(0).encode()..Key::TxnActive(version).encode(),
+        ));
+        while let Some((key, _)) = scan.next().transpose()? {
+            match Key::decode(&key)? {
+                Key::TxnActive(id) => snapshot.invisible.insert(id),
+                k => {
+                    return Err(Error::InternalTnx(format!(
+                        "Snapshot not found for version {:?}",
+                        k
+                    )));
+                }
+            }
+        }
+        drop(scan);
+        session.set(
+            &Key::TxnSnapshot(version).encode(),
+            serialize(&snapshot.invisible)?,
+        )?;
+        Ok(snapshot)
+    }
+
+    /// Restore an existing snapshot from `Key::TxnSnapshot(Version)`, or errors if not found.
+    fn restore(session: &RwLockWriteGuard<Box<dyn Storage>>, version: u64) -> Result<Self> {
+        match session.get(&Key::TxnSnapshot(version).encode())? {
+            Some(ref v) => Ok(Self {
+                version,
+                invisible: deserialize(v)?,
+            }),
+            None => Err(Error::InternalTnx(format!(
+                "Snapshot not found for version: {}",
+                version
+            ))),
+        }
+    }
+
+    /// Checks whether the given version is visible in this snapshot.
+    #[inline]
+    fn is_visible(&self, version: u64) -> bool {
+        version <= self.version && self.invisible.get(&version).is_none()
+    }
+}
 
 /// MVCC keys. The encoding preserves the grouping and ordering of keys. Uses a Cow since we want
 /// to take borrows when encoding and return owned when decoding.
@@ -230,6 +455,9 @@ enum Key<'a> {
 impl<'a> Key<'a> {
     /// Encodes a key into a byte vector.
     fn encode(self) -> Vec<u8> {}
+
+    /// Decodes a key from a byte representation.
+    fn decode(mut bytes: &[u8]) -> Result<Self> {}
 }
 
 /// A key range scan.
@@ -241,4 +469,8 @@ pub struct Scan {
     next_back_seen: Option<Vec<u8>>,
 }
 
-impl Scan {}
+impl Scan {
+    fn new(mut scan: crate::storage::Scan,snapshost: Snapshot) -> Self {
+
+    }
+}
