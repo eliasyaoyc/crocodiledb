@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::iter::Peekable;
 use std::ops::{Bound, RangeBounds};
 use std::option::Option::Some;
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard};
 
 /// The status of mvcc
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -177,7 +177,7 @@ impl Transaction {
             ));
             while let Some((key, _)) = scan.next().transpose()? {
                 match Key::decode(&key)? {
-                    Key::TxnUpdate(_, update_key) => rollback.push(update_key.into_owned()),
+                    Key::TxnUpdate(_, updated_key) => rollback.push(updated_key.into_owned()),
                     k => {
                         return Err(Error::InternalTnx(format!(
                             "Expected TxnUpdate, got {:?}",
@@ -187,7 +187,7 @@ impl Transaction {
                 };
                 rollback.push(key);
             }
-            drop(scan);
+            std::mem::drop(scan);
             for key in rollback.into_iter() {
                 session.delete(&key)?;
             }
@@ -299,21 +299,16 @@ impl Transaction {
                     ..=Key::Record(key.into(), std::u64::MAX).encode(),
             ))
             .rev();
-        while let Some((k, v)) = scan.next().transpose()? {
+        while let Some((k, _)) = scan.next().transpose()? {
             match Key::decode(&k)? {
                 Key::Record(_, version) => {
                     if !self.snapshot.is_visible(version) {
                         return Err(Error::InternalTnx(
-                            "Serialization failure, retry transaction".into(),
-                        ));
+                            "Serialization failure, retry transaction".into(), )
+                        );
                     }
                 }
-                k => {
-                    return Err(Error::InternalTnx(format!(
-                        "Expected Txn::Record, got {:?}",
-                        k
-                    )));
-                }
+                k => return Err(Error::InternalTnx(format!("Expected Txn::Record, got {:?}", k))),
             };
         }
         drop(scan);
@@ -387,34 +382,22 @@ struct Snapshot {
 impl Snapshot {
     /// Takes a new snapshot, persisting it as `key::TxnSnapshot(version)`.
     fn take(session: &mut RwLockWriteGuard<Box<dyn Storage>>, version: u64) -> Result<Self> {
-        let mut snapshot = Self {
-            version,
-            invisible: Default::default(),
-        };
-        let mut scan = session.scan(crate::storage::Range::from(
-            Key::TxnActive(0).encode()..Key::TxnActive(version).encode(),
-        ));
+        let mut snapshot = Self { version, invisible: HashSet::new() };
+        let mut scan =
+            session.scan(crate::storage::Range::from(Key::TxnActive(0).encode()..Key::TxnActive(version).encode()));
         while let Some((key, _)) = scan.next().transpose()? {
             match Key::decode(&key)? {
                 Key::TxnActive(id) => snapshot.invisible.insert(id),
-                k => {
-                    return Err(Error::InternalTnx(format!(
-                        "Snapshot not found for version {:?}",
-                        k
-                    )));
-                }
-            }
+                k => return Err(Error::InternalTnx(format!("Expected TxnActive, got {:?}", k))),
+            };
         }
-        drop(scan);
-        session.set(
-            &Key::TxnSnapshot(version).encode(),
-            serialize(&snapshot.invisible)?,
-        )?;
+        std::mem::drop(scan);
+        session.set(&Key::TxnSnapshot(version).encode(), serialize(&snapshot.invisible)?)?;
         Ok(snapshot)
     }
 
     /// Restore an existing snapshot from `Key::TxnSnapshot(Version)`, or errors if not found.
-    fn restore(session: &RwLockWriteGuard<Box<dyn Storage>>, version: u64) -> Result<Self> {
+    fn restore(session: &RwLockReadGuard<Box<dyn Storage>>, version: u64) -> Result<Self> {
         match session.get(&Key::TxnSnapshot(version).encode())? {
             Some(ref v) => Ok(Self {
                 version,
@@ -454,7 +437,12 @@ enum Key<'a> {
 
 impl<'a> Key<'a> {
     /// Encodes a key into a byte vector.
-    fn encode(self) -> Vec<u8> {}
+    fn encode(self) -> Vec<u8> {
+        match self {
+            Self::TxnNext => vec![0x01],
+            Self::TxnActive(id) => [&[0x02][..], &encode_u64(id)].concat(),
+        }
+    }
 
     /// Decodes a key from a byte representation.
     fn decode(mut bytes: &[u8]) -> Result<Self> {}
@@ -470,7 +458,21 @@ pub struct Scan {
 }
 
 impl Scan {
-    fn new(mut scan: crate::storage::Scan,snapshost: Snapshot) -> Self {
+    fn new(mut scan: crate::storage::Scan, snapshot: Snapshot) -> Self {
 
+    }
+}
+
+impl Iterator for Scan {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unimplemented!()
+    }
+}
+
+impl DoubleEndedIterator for Scan {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        unimplemented!()
     }
 }

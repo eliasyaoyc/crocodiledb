@@ -2,6 +2,8 @@ use prost::DecodeError;
 use std::io;
 use std::sync::{PoisonError, RwLockReadGuard};
 use thiserror::Error;
+use bincode::ErrorKind;
+use serde::Deserialize;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -47,6 +49,18 @@ impl From<prost::DecodeError> for Error {
 
 impl<T> From<PoisonError<T>> for Error {
     fn from(e: PoisonError<T>) -> Self {
+        Self::InternalErr(e.to_string())
+    }
+}
+
+impl From<Vec<u8>> for Error {
+    fn from(e: Vec<u8>) -> Self {
+        unimplemented!()
+    }
+}
+
+impl From<Box<bincode::ErrorKind>> for Error {
+    fn from(e: Box<bincode::ErrorKind>) -> Self {
         Self::InternalErr(e.to_string())
     }
 }

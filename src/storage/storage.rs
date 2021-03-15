@@ -1,8 +1,9 @@
 use crate::storage::error::Result;
 use crossbeam_channel::bounded;
 use std::ops::{Bound, RangeBounds};
+use std::fmt::Display;
 
-pub trait Storage: Send + Sync {
+pub trait Storage: Display + Send + Sync {
     /// Gets a value for a key, if it exists.
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
     /// Sets a value for a key, replacing the existing value if any.
@@ -70,7 +71,7 @@ impl RangeBounds<Vec<u8>> for Range {
 }
 
 /// Iterator over a key/value range.
-pub type Scan = Box<dyn DoubleEndedIterator<Item = std::result::Result<Vec<u8>, Vec<u8>>> + Send>;
+pub type Scan = Box<dyn DoubleEndedIterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>;
 
 #[cfg(test)]
 pub trait TestSuite<S: Storage> {
