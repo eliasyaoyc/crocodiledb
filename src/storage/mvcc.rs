@@ -1,3 +1,4 @@
+use crate::storage::encoding::{encode_bytes, encode_u64, take_byte, take_bytes, take_u64};
 use crate::storage::error::{Error, Result};
 use crate::storage::Storage;
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,7 @@ use std::collections::HashSet;
 use std::iter::Peekable;
 use std::ops::{Bound, RangeBounds};
 use std::option::Option::Some;
-use std::sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// The status of mvcc
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -159,8 +160,9 @@ impl Transaction {
     }
 
     /// Commits the transaction, by removing the txn from the active set.
+
     pub fn commit(self) -> Result<()> {
-        let mut session = self.storage.read()?;
+        let mut session = self.storage.write()?;
         // FIXME not atomic, what to do if the delete operation occur error.
         session.delete(&Key::TxnActive(self.id).encode())?;
         session.flush()
@@ -214,14 +216,14 @@ impl Transaction {
             match Key::decode(&k)? {
                 Key::Record(_, version) => {
                     if self.snapshot.is_visible(version) {
-                        return deserialize(&v)?;
+                        return deserialize(&v);
                     }
                 }
                 k => {
                     return Err(Error::InternalTnx(format!(
                         "Expected Txn::Record, got {:?}",
                         k
-                    )));
+                    )))
                 }
             };
         }
@@ -304,11 +306,16 @@ impl Transaction {
                 Key::Record(_, version) => {
                     if !self.snapshot.is_visible(version) {
                         return Err(Error::InternalTnx(
-                            "Serialization failure, retry transaction".into(), )
-                        );
+                            "Serialization failure, retry transaction".into(),
+                        ));
                     }
                 }
-                k => return Err(Error::InternalTnx(format!("Expected Txn::Record, got {:?}", k))),
+                k => {
+                    return Err(Error::InternalTnx(format!(
+                        "Expected Txn::Record, got {:?}",
+                        k
+                    )))
+                }
             };
         }
         drop(scan);
@@ -382,17 +389,29 @@ struct Snapshot {
 impl Snapshot {
     /// Takes a new snapshot, persisting it as `key::TxnSnapshot(version)`.
     fn take(session: &mut RwLockWriteGuard<Box<dyn Storage>>, version: u64) -> Result<Self> {
-        let mut snapshot = Self { version, invisible: HashSet::new() };
-        let mut scan =
-            session.scan(crate::storage::Range::from(Key::TxnActive(0).encode()..Key::TxnActive(version).encode()));
+        let mut snapshot = Self {
+            version,
+            invisible: HashSet::new(),
+        };
+        let mut scan = session.scan(crate::storage::Range::from(
+            Key::TxnActive(0).encode()..Key::TxnActive(version).encode(),
+        ));
         while let Some((key, _)) = scan.next().transpose()? {
             match Key::decode(&key)? {
                 Key::TxnActive(id) => snapshot.invisible.insert(id),
-                k => return Err(Error::InternalTnx(format!("Expected TxnActive, got {:?}", k))),
+                k => {
+                    return Err(Error::InternalTnx(format!(
+                        "Expected TxnActive, got {:?}",
+                        k
+                    )))
+                }
             };
         }
         std::mem::drop(scan);
-        session.set(&Key::TxnSnapshot(version).encode(), serialize(&snapshot.invisible)?)?;
+        session.set(
+            &Key::TxnSnapshot(version).encode(),
+            serialize(&snapshot.invisible)?,
+        )?;
         Ok(snapshot)
     }
 
@@ -441,11 +460,42 @@ impl<'a> Key<'a> {
         match self {
             Self::TxnNext => vec![0x01],
             Self::TxnActive(id) => [&[0x02][..], &encode_u64(id)].concat(),
+            Self::TxnSnapshot(version) => [&[0x03][..], &encode_u64(version)].concat(),
+            Self::TxnUpdate(id, key) => {
+                [&[0x04][..], &encode_u64(id), &encode_bytes(&key)].concat()
+            }
+            Self::Metadata(key) => [&[0x05][..], &encode_bytes(&key)].concat(),
+            Self::Record(key, version) => {
+                [&[0xff][..], &encode_bytes(&key), &encode_u64(version)].concat()
+            }
         }
     }
 
     /// Decodes a key from a byte representation.
-    fn decode(mut bytes: &[u8]) -> Result<Self> {}
+    fn decode(mut bytes: &[u8]) -> Result<Self> {
+        let mut bytes = &mut bytes;
+        let key = match take_byte(bytes)? {
+            0x01 => Self::TxnNext,
+            0x02 => Self::TxnActive(take_u64(bytes)?),
+            0x03 => Self::TxnSnapshot(take_u64(bytes)?),
+            0x04 => Self::TxnUpdate(take_u64(bytes)?, take_bytes(bytes)?.into()),
+            0x05 => Self::Metadata(take_bytes(bytes)?.into()),
+            0xff => Self::Record(take_bytes(bytes)?.into(), take_u64(bytes)?),
+            b => {
+                return Err(Error::InternalErr(format!(
+                    "Unknown MVCC key prefix {:x?}",
+                    b
+                )))
+            }
+        };
+
+        if !bytes.is_empty() {
+            return Err(Error::InternalErr(
+                "Unexcepted data remaining at end of key".into(),
+            ));
+        }
+        Ok(key)
+    }
 }
 
 /// A key range scan.
@@ -459,20 +509,70 @@ pub struct Scan {
 
 impl Scan {
     fn new(mut scan: crate::storage::Scan, snapshot: Snapshot) -> Self {
+        scan = Box::new(scan.filter_map(move |r| {
+            r.and_then(|(k, v)| match Key::decode(&k)? {
+                Key::Record(_, version) if !snapshot.is_visible(version) => Ok(None),
+                Key::Record(key, _) => Ok(Some((key.into_owned(), v))),
+                k => Err(Error::InternalErr(format!("Excepted Record, got {:?}", k))),
+            })
+            .transpose()
+        }));
+        Self {
+            scan: scan.peekable(),
+            next_back_seen: None,
+        }
+    }
 
+    fn try_next(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        while let Some((key, value)) = self.scan.next().transpose()? {
+            // Only return the item if it is the last version of the key.
+            if match self.scan.peek() {
+                Some(Ok((peek_key, _))) if *peek_key != key => true,
+                Some(Ok(_)) => false,
+                Some(Err(err)) => return Err(err.clone()),
+                None => true,
+            } {
+                // Only return non-deleted items.
+                if let Some(value) = deserialize(&value)? {
+                    return Ok(Some((key, value)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn try_next_back(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        while let Some((key, value)) = self.scan.next_back().transpose()? {
+            // Only return the last version of the key (so skip if seen).
+            if match &self.next_back_seen {
+                Some(seen_key) if *seen_key != key => true,
+                Some(_) => false,
+                None => true,
+            } {
+                self.next_back_seen = Some(key.clone());
+                // Only return non-deleted items.
+                if let Some(value) = deserialize(&value)? {
+                    return Ok(Some((key, value)));
+                }
+            }
+        }
+        Ok(None)
     }
 }
 
 impl Iterator for Scan {
-    type Item = ();
+    type Item = Result<(Vec<u8>, Vec<u8>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!()
+        self.try_next().transpose()
     }
 }
 
 impl DoubleEndedIterator for Scan {
     fn next_back(&mut self) -> Option<Self::Item> {
-        unimplemented!()
+        self.try_next_back().transpose()
     }
 }
+
+#[cfg(test)]
+mod tests {}

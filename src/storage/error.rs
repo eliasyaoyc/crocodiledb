@@ -1,16 +1,15 @@
-use prost::DecodeError;
+use bincode::ErrorKind;
+use serde_derive::{Deserialize, Serialize};
+use std::array::TryFromSliceError;
 use std::io;
+use std::string::FromUtf8Error;
 use std::sync::{PoisonError, RwLockReadGuard};
 use thiserror::Error;
-use bincode::ErrorKind;
-use serde::Deserialize;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Error)]
 pub enum Error {
     #[error("Invalid Configuration: {0}")]
     Config(String),
-    #[error("IO error: {0}")]
-    Io(#[source] Box<io::Error>),
     #[error("Empty key")]
     EmptyKey,
     #[error("{0}")]
@@ -19,8 +18,6 @@ pub enum Error {
     InvalidChecksum(String),
     #[error("Invalid filename")]
     InvalidFilename(String),
-    #[error("Invalid prost data: {0}")]
-    Decode(#[source] Box<prost::DecodeError>),
     #[error("Invalid data: {0}")]
     VarDecode(&'static str),
     #[error("Database Closed")]
@@ -35,32 +32,26 @@ pub enum Error {
     InternalTnx(String),
 }
 
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Self::Io(Box::new(e))
-    }
-}
-
-impl From<prost::DecodeError> for Error {
-    fn from(e: prost::DecodeError) -> Self {
-        Self::Decode(Box::new(e))
-    }
-}
-
 impl<T> From<PoisonError<T>> for Error {
     fn from(e: PoisonError<T>) -> Self {
         Self::InternalErr(e.to_string())
     }
 }
 
-impl From<Vec<u8>> for Error {
-    fn from(e: Vec<u8>) -> Self {
-        unimplemented!()
+impl From<Box<bincode::ErrorKind>> for Error {
+    fn from(e: Box<bincode::ErrorKind>) -> Self {
+        Self::InternalErr(e.to_string())
     }
 }
 
-impl From<Box<bincode::ErrorKind>> for Error {
-    fn from(e: Box<bincode::ErrorKind>) -> Self {
+impl From<TryFromSliceError> for Error {
+    fn from(e: TryFromSliceError) -> Self {
+        Self::InternalErr(e.to_string())
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(e: FromUtf8Error) -> Self {
         Self::InternalErr(e.to_string())
     }
 }

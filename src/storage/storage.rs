@@ -1,7 +1,7 @@
 use crate::storage::error::Result;
 use crossbeam_channel::bounded;
-use std::ops::{Bound, RangeBounds};
 use std::fmt::Display;
+use std::ops::{Bound, RangeBounds};
 
 pub trait Storage: Display + Send + Sync {
     /// Gets a value for a key, if it exists.
