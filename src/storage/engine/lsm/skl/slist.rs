@@ -1,14 +1,10 @@
-use super::MAX_HEIGHT;
-use crate::skiplist::arena::Arena;
-use crate::skiplist::key::{FixedLengthSuffixComparator, KeyComparator};
 use bytes::Bytes;
 use rand::Rng;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use super::arena::Arena;
-use super::key::KeyComparator;
-use super::key::FixedLengthSuffixComparator;
+use crate::storage::engine::lsm::skl::{KeyComparator, FixedLengthSuffixComparator};
 
 const HEIGHT_INCREASE: u32 = u32::MAX / 3;
 
