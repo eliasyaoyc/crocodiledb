@@ -6,23 +6,31 @@ use std::ops::{Bound, RangeBounds};
 pub trait Storage: Display + Send + Sync {
     /// Gets a value for a key, if it exists.
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+
     /// Sets a value for a key, replacing the existing value if any.
     fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()>;
+
     /// Deletes a key, or does nothing if it does not exist.
     fn delete(&mut self, key: &[u8]) -> Result<()>;
+
     /// Flushes any buffered data to the underlying storage engine.
     fn flush(&mut self) -> Result<()>;
 
+    /// Iterates over an ordered range of key/value pairs.
     fn scan(&self, range: Range) -> Scan;
 }
 
 /// Scan range including start bound and end bound.
+#[derive(Debug, Clone)]
 pub struct Range {
     pub start: Bound<Vec<u8>>,
     pub end: Bound<Vec<u8>>,
 }
 
 impl Range {
+    /// Creates a new range from the given Rust range. We can't use the RangeBounds directly in
+    /// scan() since that prevents us from using Store as a trait object. Also, we can't take
+    /// AsRef<[u8]> or other convenient types, since that won't work with e.g. .. ranges.
     pub fn from<R: RangeBounds<Vec<u8>>>(range: R) -> Self {
         Self {
             start: match range.start_bound() {
@@ -45,8 +53,8 @@ impl Range {
             Bound::Excluded(start) => &**start < v,
             Bound::Unbounded => true,
         }) && (match &self.end {
-            Bound::Included(end) => &**end >= v,
-            Bound::Excluded(end) => &**end > v,
+            Bound::Included(end) => v <= &**end,
+            Bound::Excluded(end) => v < &**end,
             Bound::Unbounded => true,
         })
     }
@@ -78,15 +86,15 @@ pub trait TestSuite<S: Storage> {
     fn setup() -> Result<S>;
 
     fn test() -> Result<()> {
-        Self::t_delete()?;
-        Self::t_get()?;
-        Self::t_scan()?;
-        Self::t_set()?;
-        Self::t_random()?;
+        Self::test_delete()?;
+        Self::test_get()?;
+        Self::test_scan()?;
+        Self::test_set()?;
+        Self::test_random()?;
         Ok(())
     }
 
-    fn t_get() -> Result<()> {
+    fn test_get() -> Result<()> {
         let mut s = Self::setup()?;
         s.set(b"a", vec![0x01])?;
         assert_eq!(Some(vec![0x01]), s.get(b"a")?);
@@ -94,7 +102,7 @@ pub trait TestSuite<S: Storage> {
         Ok(())
     }
 
-    fn t_delete() -> Result<()> {
+    fn test_delete() -> Result<()> {
         let mut s = Self::setup()?;
         s.set(b"a", vec![0x01])?;
         assert_eq!(Some(vec![0x01]), s.get(b"a")?);
@@ -104,7 +112,7 @@ pub trait TestSuite<S: Storage> {
         Ok(())
     }
 
-    fn t_random() -> Result<()> {
+    fn test_random() -> Result<()> {
         use rand::Rng;
         let mut s = Self::setup()?;
         let mut rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(397_427_893);
@@ -126,24 +134,19 @@ pub trait TestSuite<S: Storage> {
         expect.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(expect, s.scan(Range::from(..)).collect::<Result<Vec<_>>>()?);
         expect.reverse();
-        assert_eq!(
-            expect,
-            s.scan(Range::from(..)).rev().collect::<Result<Vec<_>>>()?
-        );
+        assert_eq!(expect, s.scan(Range::from(..)).rev().collect::<Result<Vec<_>>>()?);
 
         // Remove the items
         for (key, _) in items {
             s.delete(&key)?;
             assert_eq!(None, s.get(&key)?);
         }
-        assert!(s
-            .scan(Range::from(..))
-            .collect::<Result<Vec<_>>>()?
-            .is_empty());
+        assert!(s.scan(Range::from(..)).collect::<Result<Vec<_>>>()?.is_empty());
+
         Ok(())
     }
 
-    fn t_scan() -> Result<()> {
+    fn test_scan() -> Result<()> {
         let mut s = Self::setup()?;
         s.set(b"a", vec![0x01])?;
         s.set(b"b", vec![0x02])?;
@@ -158,8 +161,7 @@ pub trait TestSuite<S: Storage> {
                 (b"ba".to_vec(), vec![0x02, 0x01]),
                 (b"bb".to_vec(), vec![0x02, 0x02]),
             ],
-            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec()))
-                .collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec())).collect::<Result<Vec<_>>>()?
         );
         assert_eq!(
             vec![
@@ -167,19 +169,13 @@ pub trait TestSuite<S: Storage> {
                 (b"ba".to_vec(), vec![0x02, 0x01]),
                 (b"b".to_vec(), vec![0x02]),
             ],
-            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec()))
-                .rev()
-                .collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec())).rev().collect::<Result<Vec<_>>>()?
         );
 
         // Inclusive/exclusive ranges
         assert_eq!(
-            vec![
-                (b"b".to_vec(), vec![0x02]),
-                (b"ba".to_vec(), vec![0x02, 0x01]),
-            ],
-            s.scan(Range::from(b"b".to_vec()..b"bb".to_vec()))
-                .collect::<Result<Vec<_>>>()?
+            vec![(b"b".to_vec(), vec![0x02]), (b"ba".to_vec(), vec![0x02, 0x01]),],
+            s.scan(Range::from(b"b".to_vec()..b"bb".to_vec())).collect::<Result<Vec<_>>>()?
         );
         assert_eq!(
             vec![
@@ -187,23 +183,17 @@ pub trait TestSuite<S: Storage> {
                 (b"ba".to_vec(), vec![0x02, 0x01]),
                 (b"bb".to_vec(), vec![0x02, 0x02]),
             ],
-            s.scan(Range::from(b"b".to_vec()..=b"bb".to_vec()))
-                .collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(b"b".to_vec()..=b"bb".to_vec())).collect::<Result<Vec<_>>>()?
         );
 
         // Open ranges
         assert_eq!(
-            vec![
-                (b"bb".to_vec(), vec![0x02, 0x02]),
-                (b"c".to_vec(), vec![0x03]),
-            ],
-            s.scan(Range::from(b"bb".to_vec()..))
-                .collect::<Result<Vec<_>>>()?
+            vec![(b"bb".to_vec(), vec![0x02, 0x02]), (b"c".to_vec(), vec![0x03]),],
+            s.scan(Range::from(b"bb".to_vec()..)).collect::<Result<Vec<_>>>()?
         );
         assert_eq!(
             vec![(b"a".to_vec(), vec![0x01]), (b"b".to_vec(), vec![0x02]),],
-            s.scan(Range::from(..=b"b".to_vec()))
-                .collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(..=b"b".to_vec())).collect::<Result<Vec<_>>>()?
         );
 
         // Full range
@@ -220,7 +210,7 @@ pub trait TestSuite<S: Storage> {
         Ok(())
     }
 
-    fn t_set() -> Result<()> {
+    fn test_set() -> Result<()> {
         let mut s = Self::setup()?;
         s.set(b"a", vec![0x01])?;
         assert_eq!(Some(vec![0x01]), s.get(b"a")?);
@@ -230,12 +220,14 @@ pub trait TestSuite<S: Storage> {
     }
 }
 
+
 mod test {
-    use super::*;
-    use crate::storage::engine::memory::Memory;
+    use crate::storage::error::{Error, Result};
+
     use std::fmt::Display;
     use std::sync::{Arc, RwLock};
-    use tokio::io::AsyncReadExt;
+    use crate::storage::engine::memory::Memory;
+    use crate::storage::{Storage, Range, Scan};
 
     /// Key-value storage backend for testing. Protects an inner Memory backend using a mutex, so it can
     /// be cloned and inspected.
@@ -247,9 +239,7 @@ mod test {
     impl Test {
         /// Creates a new Test key-value storage engine.
         pub fn new() -> Self {
-            Self {
-                kv: Arc::new(RwLock::new(Memory::new())),
-            }
+            Self { kv: Arc::new(RwLock::new(Memory::new())) }
         }
     }
 
@@ -274,14 +264,7 @@ mod test {
 
         fn scan(&self, range: Range) -> Scan {
             // Since the mutex guard is scoped to this method, we simply buffer the result.
-            Box::new(
-                self.kv
-                    .read()
-                    .unwrap()
-                    .scan(range)
-                    .collect::<Vec<Result<_>>>()
-                    .into_iter(),
-            )
+            Box::new(self.kv.read().unwrap().scan(range).collect::<Vec<Result<_>>>().into_iter())
         }
 
         fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
@@ -298,7 +281,8 @@ mod test {
 
     #[test]
     fn tests() -> Result<()> {
-        use super::TestSuite;
+        use crate::storage::TestSuite;
         Test::test()
     }
+
 }

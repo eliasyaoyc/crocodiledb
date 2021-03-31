@@ -45,22 +45,11 @@ impl Memory {
         if capacity < 2 {
             return Err(ParamCapacityrErr);
         }
-        Ok(Self {
-            root: Arc::new(RwLock::new(Node::Root(Children::new(DEFAULT_CAPACITY)))),
-        })
+        Ok(Self { root: Arc::new(RwLock::new(Node::Root(Children::new(DEFAULT_CAPACITY)))) })
     }
 }
 
 impl Storage for Memory {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self.root.read()?.get(key))
-    }
-
-    fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
-        self.root.write()?.set(key, value);
-        Ok(())
-    }
-
     fn delete(&mut self, key: &[u8]) -> Result<()> {
         self.root.write()?.delete(key);
         Ok(())
@@ -68,11 +57,21 @@ impl Storage for Memory {
 
     fn flush(&mut self) -> Result<()> {
         // TODO the item store in the memory in current version, so don't need to implement this method for now.
+
         Ok(())
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.root.read()?.get(key))
     }
 
     fn scan(&self, range: Range) -> Scan {
         Box::new(Iter::new(self.root.clone(), range))
+    }
+
+    fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
+        self.root.write()?.set(key, value);
+        Ok(())
     }
 }
 
@@ -159,12 +158,9 @@ impl Node {
                 // Set the key/value pair in the children. If the children split, create a new
                 // child set for the root node with two new inner nodes for the split children.
                 if let Some((split_key, split_children)) = children.set(key, value) {
-                    // If the children split, we should rebuild the root node,so the next step is to insert the old root node and insert split node.
                     let mut root_children = Children::new(children.capacity());
                     root_children.keys.push(split_key);
-                    root_children
-                        .nodes
-                        .push(Node::Inner(replace(children, Children::empty())));
+                    root_children.nodes.push(Node::Inner(replace(children, Children::empty())));
                     root_children.nodes.push(Node::Inner(split_children));
                     *children = root_children;
                 }
@@ -234,7 +230,7 @@ impl Children {
 
     /// Creates an empty child set, for use with replace().
     fn empty() -> Self {
-        Children::default()
+        Self { keys: Vec::new(), nodes: Vec::new() }
     }
 
     /// Deletes a key from the children, if it exists.
@@ -279,10 +275,10 @@ impl Children {
 
     /// Returns a value for a key, if it exists.
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        if self.is_empty() {
-            None
-        } else {
+        if !self.is_empty() {
             self.lookup(key).1.get(key)
+        } else {
+            None
         }
     }
 
@@ -305,15 +301,14 @@ impl Children {
         let (i, child) = self.lookup(key);
         if let Some(item) = child.get_next(key) {
             Some(item)
-        } else if i < self.len() - 1 {
             // Otherwise, try the next child.
+        } else if i < self.len() - 1 {
             self[i + 1].get_next(key)
+            // We don't have it.
         } else {
-            // Do not have it.
             None
         }
     }
-
     /// Returns the previous key/value pair before the given key, if it exists.
     fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         if self.is_empty() {
@@ -323,11 +318,11 @@ impl Children {
         let (i, child) = self.lookup(key);
         if let Some(item) = child.get_prev(key) {
             Some(item)
-        } else if i > 0 {
             // Otherwise, try the previous child.
+        } else if i > 0 {
             self[i - 1].get_prev(key)
+            // We don't have it
         } else {
-            // Do not have it.
             None
         }
     }
@@ -335,11 +330,7 @@ impl Children {
     /// Looks up the child responsible for a given key. This can only be called on non-empty
     /// child sets, which should be all child sets except for the initial root node.
     fn lookup(&self, key: &[u8]) -> (usize, &Node) {
-        let i = self
-            .keys
-            .iter()
-            .position(|k| k.deref() > key)
-            .unwrap_or_else(|| self.keys.len());
+        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
         (i, &self[i])
     }
 
@@ -347,18 +338,14 @@ impl Children {
     /// can only be called on non-empty child sets, which should be all child sets except for the
     /// initial root node.
     fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
-        let i = self
-            .keys
-            .iter()
-            .position(|k| k.deref() > key)
-            .unwrap_or_else(|| self.keys.len());
+        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
         (i, &mut self[i])
     }
+
 
     /// Merges the node at index i with it's right sibling.
     /// TODO How to do if after merged that the newest node capacity gather than limited？
     fn merge(&mut self, i: usize) {
-        // First,delete related index,prevent other requests called.
         let parent_key = self.keys.remove(i);
         let right = &mut self.remove(i + 1);
         let left = &mut self[i];
@@ -369,7 +356,6 @@ impl Children {
                 lc.nodes.append(&mut rc.nodes);
             }
             (Node::Leaf(lv), Node::Leaf(rv)) => lv.append(rv),
-            // Root node can't merge.
             (left, right) => panic!("Can't merge {:?} and {:?}", left, right),
         }
     }
@@ -390,7 +376,6 @@ impl Children {
                 Node::Inner(c) => (c.keys.remove(0), c.nodes.remove(0)),
                 n => panic!("Left rotation from unexpected node {:?}", n),
             };
-            // key = keys[i-1]
             let key = replace(&mut self.keys[i - 1], key); // rotate separator key
             match &mut self[i - 1] {
                 Node::Inner(c) => {
@@ -410,7 +395,7 @@ impl Children {
                 n => panic!("Left rotation into unexpected node {:?}", n),
             }
         } else {
-            panic!("Root node don't known how to rotate node {:?}", self[i])
+            panic!("Don't know how to rotate node {:?}", self[i]);
         }
     }
 
@@ -428,9 +413,9 @@ impl Children {
         if matches!(self[i], Node::Inner(_)) {
             let (key, node) = match &mut self[i] {
                 Node::Inner(c) => (c.keys.pop().unwrap(), c.nodes.pop().unwrap()),
-                n => panic!("Right rotation from expected node {:?}", n),
+                n => panic!("Right rotation from unexpected node {:?}", n),
             };
-            let key = replace(&mut self.keys[i], key); // rotation separator key
+            let key = replace(&mut self.keys[i], key); // rotate separator key
             match &mut self[i + 1] {
                 Node::Inner(c) => {
                     c.keys.insert(0, key);
@@ -441,22 +426,22 @@ impl Children {
         } else if matches!(self[i], Node::Leaf(_)) {
             let (key, value) = match &mut self[i] {
                 Node::Leaf(v) => v.pop().unwrap(),
-                n => panic!("Right rotation from expected node {:?}", n),
+                n => panic!("Right rotation from unexpected node {:?}", n),
             };
-            self.keys[i] = key.clone();
+            self.keys[i] = key.clone(); // update separator key
             match &mut self[i + 1] {
                 Node::Leaf(v) => v.insert(0, (key, value)),
                 n => panic!("Right rotation into unexpected node {:?}", n),
             }
         } else {
-            panic!("Root node don't known how to rotate node {:?}", self[i]);
+            panic!("Don't know how to rotate node {:?}", self[i]);
         }
     }
 
     /// Sets a key to a value in the children, delegating to the child responsible. If the node
     /// splits, returns the split key and new (right) node.
     fn set(&mut self, key: &[u8], value: Vec<u8>) -> Option<(Vec<u8>, Children)> {
-        // From empty child sets, just create a new leaf node for the key.
+        // For empty child sets, just create a new leaf node for the key.
         if self.is_empty() {
             let mut values = Values::new(self.capacity());
             values.push((key.to_vec(), value));
@@ -471,8 +456,8 @@ impl Children {
             // The split child should be insert next to the original target.
             let insert_at = i + 1;
 
-            // If the child set has room,just insert the split child into it. Recall that key
-            // indicates are one less than child nodes.
+            // If the child set has room, just insert the split child into it. Recall that key
+            // indices are one less than child nodes.
             if self.len() < self.capacity() {
                 self.keys.insert(insert_at - 1, split_key.to_vec());
                 self.nodes.insert(insert_at, split_child);
@@ -490,22 +475,21 @@ impl Children {
 
             // Split the existing children and keys into two parts. The left parts will now have an
             // equal number of keys and children, where the last key points to the first node in
-            // the right children. This key will either have to be promoted to a split key, or
+            // the right children. This last key will either have to be promoted to a split key, or
             // moved to the right keys, but keeping it here makes the arithmetic somewhat simpler.
-            let mut rkeys = Vec::with_capacity(self.keys.capacity());
             let mut rnodes = Vec::with_capacity(self.nodes.capacity());
-            // The key and node that need to be split.
-            rkeys.extend(self.keys.drain((self.keys.len() - rnodes.len() + 1)..));
+            let mut rkeys = Vec::with_capacity(self.keys.capacity());
             rnodes.extend(self.nodes.drain(split_at..));
+            rkeys.extend(self.keys.drain((self.keys.len() - rnodes.len() + 1)..));
 
             // Insert the split node and split key. Since the key is always at one index less than
-            // the child, the may end up in different halves in which case the split key will be
-            // promoted to a split key and the extra key from the left half is move to the right
+            // the child, they may end up in different halves in which case the split key will be
+            // promoted to a split key and the extra key from the left half is moved to the right
             // half. Otherwise, the extra key from the left half becomes the split key.
             let split_key = match insert_at.cmp(&self.nodes.len()) {
                 Ordering::Greater => {
                     rkeys.insert(insert_at - 1 - self.keys.len(), split_key);
-                    rnodes.insert(insert_at - 1 - self.nodes.len(), split_child);
+                    rnodes.insert(insert_at - self.nodes.len(), split_child);
                     self.keys.remove(self.keys.len() - 1)
                 }
                 Ordering::Equal => {
@@ -519,13 +503,8 @@ impl Children {
                     self.keys.remove(self.keys.len() - 1)
                 }
             };
-            Some((
-                split_key,
-                Children {
-                    keys: rkeys,
-                    nodes: rnodes,
-                },
-            ))
+
+            Some((split_key, Children { keys: rkeys, nodes: rnodes }))
         } else {
             None
         }
@@ -576,7 +555,7 @@ impl Values {
         self.iter()
             .find_map(|(k, v)| match (&**k).cmp(key) {
                 Ordering::Equal => Some(Some(v.to_vec())),
-                _ => Some(None),
+                _ => None,
             })
             .flatten()
     }
@@ -596,7 +575,7 @@ impl Values {
         self.iter()
             .find_map(|(k, v)| match (&**k).cmp(key) {
                 Ordering::Greater => Some(Some((k.to_vec(), v.to_vec()))),
-                _ => Some(None),
+                _ => None,
             })
             .flatten()
     }
@@ -607,7 +586,7 @@ impl Values {
             .rev()
             .find_map(|(k, v)| match (&**k).cmp(key) {
                 Ordering::Less => Some(Some((k.to_vec(), v.to_vec()))),
-                _ => Some(None),
+                _ => None,
             })
             .flatten()
     }
@@ -674,28 +653,22 @@ struct Iter {
 impl Iter {
     /// Creates a new iterator.
     fn new(root: Arc<RwLock<Node>>, range: Range) -> Self {
-        Self {
-            root,
-            range,
-            front_cursor: None,
-            back_cursor: None,
-        }
+        Self { root, range, front_cursor: None, back_cursor: None }
     }
 
+    // next() with error handling.
     fn try_next(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
         let root = self.root.read()?;
         let next = match &self.front_cursor {
             None => match &self.range.start {
-                Bound::Included(k) => root
-                    .get(k)
-                    .map(|v| (k.clone(), v))
-                    .or_else(|| root.get_next(k)),
+                Bound::Included(k) => {
+                    root.get(k).map(|v| (k.clone(), v)).or_else(|| root.get_next(k))
+                }
                 Bound::Excluded(k) => root.get_next(k),
                 Bound::Unbounded => root.get_first(),
             },
             Some(k) => root.get_next(k),
         };
-
         if let Some((k, _)) = &next {
             if !self.range.contains(k) {
                 return Ok(None);
@@ -710,21 +683,19 @@ impl Iter {
         Ok(next)
     }
 
+    /// next_back() with error handling.
     fn try_next_back(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
         let root = self.root.read()?;
         let prev = match &self.back_cursor {
             None => match &self.range.end {
-                Bound::Included(k) => root
-                    .get(k)
-                    .map(|v| (k.clone(), v))
-                    .or_else(|| root.get_prev(k)),
+                Bound::Included(k) => {
+                    root.get(k).map(|v| (k.clone(), v)).or_else(|| root.get_prev(k))
+                }
                 Bound::Excluded(k) => root.get_prev(k),
                 Bound::Unbounded => root.get_last(),
             },
-
             Some(k) => root.get_prev(k),
         };
-
         if let Some((k, _)) = &prev {
             if !self.range.contains(k) {
                 return Ok(None);
@@ -734,10 +705,8 @@ impl Iter {
                     return Ok(None);
                 }
             }
-
             self.back_cursor = Some(k.clone())
         }
-
         Ok(prev)
     }
 }
