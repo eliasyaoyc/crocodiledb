@@ -223,7 +223,7 @@ impl Transaction {
                     return Err(Error::InternalTnx(format!(
                         "Expected Txn::Record, got {:?}",
                         k
-                    )))
+                    )));
                 }
             };
         }
@@ -314,7 +314,7 @@ impl Transaction {
                     return Err(Error::InternalTnx(format!(
                         "Expected Txn::Record, got {:?}",
                         k
-                    )))
+                    )));
                 }
             };
         }
@@ -403,7 +403,7 @@ impl Snapshot {
                     return Err(Error::InternalTnx(format!(
                         "Expected TxnActive, got {:?}",
                         k
-                    )))
+                    )));
                 }
             };
         }
@@ -485,7 +485,7 @@ impl<'a> Key<'a> {
                 return Err(Error::InternalErr(format!(
                     "Unknown MVCC key prefix {:x?}",
                     b
-                )))
+                )));
             }
         };
 
@@ -515,7 +515,7 @@ impl Scan {
                 Key::Record(key, _) => Ok(Some((key.into_owned(), v))),
                 k => Err(Error::InternalErr(format!("Excepted Record, got {:?}", k))),
             })
-            .transpose()
+                .transpose()
         }));
         Self {
             scan: scan.peekable(),
@@ -575,4 +575,65 @@ impl DoubleEndedIterator for Scan {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::storage::test::Test;
+    use super::*;
+
+    fn setup() -> MVCC {
+        MVCC::new(Box::new(Test::new()))
+    }
+
+    #[test]
+    fn test_begin() -> Result<()> {
+        let mvcc = setup();
+
+        let txn = mvcc.begin()?;
+        assert_eq!(1, txn.id());
+        assert_eq!(Mode::ReadWrite, txn.mode());
+        txn.commit()?;
+
+        let txn = mvcc.begin()?;
+        assert_eq!(2, txn.id());
+        txn.rollback()?;
+
+        let txn = mvcc.begin()?;
+        assert_eq!(3, txn.id());
+        txn.commit()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_begin_with_mode_readonly() -> Result<()> {
+        let mvcc = setup();
+        let txn = mvcc.begin_with_mode(Mode::ReadOnly)?;
+        assert_eq!(1, txn.id());
+        assert_eq!(Mode::ReadOnly, txn.mode());
+        txn.commit()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_begin_with_mode_readwrite() -> Result<()> {
+        let mvcc = setup();
+        let txn = mvcc.begin_with_mode(Mode::ReadWrite)?;
+        assert_eq!(1, txn.id());
+        assert_eq!(Mode::ReadWrite, txn.mode());
+        txn.commit()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata() ->Result<()> {
+        let mvcc = setup();
+
+        mvcc.set_metadata(b"foo",b"bar".to_vec())?;
+        assert_eq!(Some(b"bar".to_vec()), mvcc.get_metadata(b"foo")?);
+
+        assert_eq!(None, mvcc.get_metadata(b"x")?);
+
+        mvcc.set_metadata(b"foo",b"baz".to_vec())?;
+        assert_eq!(Some(b"baz".to_vec()), mvcc.get_metadata(b"foo")?);
+        Ok(())
+    }
+}

@@ -221,7 +221,7 @@ pub trait TestSuite<S: Storage> {
 }
 
 
-mod test {
+pub mod test {
     use crate::storage::error::{Error, Result};
 
     use std::fmt::Display;
