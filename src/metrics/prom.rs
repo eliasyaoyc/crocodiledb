@@ -7,15 +7,16 @@ pub trait FmtMetrics {
     fn fmt_metrics(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 
     fn as_display(&self) -> DisplayMetrics<&Self>
-        where
-            Self: Sized, {
+    where
+        Self: Sized,
+    {
         DisplayMetrics(self)
     }
 
     fn and_then<N>(self, next: N) -> AndThen<Self, N>
-        where
-            N: FmtMetrics,
-            Self: Sized,
+    where
+        N: FmtMetrics,
+        Self: Sized,
     {
         AndThen(self, next)
     }
@@ -44,7 +45,7 @@ pub trait FmtMetric {
     const KIND: &'static str;
 
     /// Writes a metrics with the given name and no labels.
-    fn fmt_metric<N: fmt::Display>(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_metric<N: fmt::Display>(&self, f: &mut fmt::Formatter<'_>, name: N) -> fmt::Result;
 
     /// Writes a metrics with the given name and labels.
     fn fmt_metric_labeled<N, L>(
@@ -53,9 +54,9 @@ pub trait FmtMetric {
         name: N,
         label: L,
     ) -> fmt::Result
-        where
-            N: fmt::Display,
-            L: FmtLabels;
+    where
+        N: fmt::Display,
+        L: FmtLabels;
 }
 
 /// Describes a metrics statically.
@@ -92,13 +93,13 @@ impl<'a, N: fmt::Display, M: FmtMetric> Metric<'a, N, M> {
     pub fn fmt_scopes<'s, L, S: 's, I, F>(
         &self,
         f: &mut fmt::Formatter<'_>,
-        scopes: F,
+        scopes: I,
         to_metric: F,
     ) -> fmt::Result
-        where
-            L: FmtLabels,
-            I: IntoIterator<Item=(L, &'s S)>,
-            F: Fn(&S) -> &M
+    where
+        L: FmtLabels,
+        I: IntoIterator<Item = (L, &'s S)>,
+        F: Fn(&S) -> &M,
     {
         for (labels, scope) in scopes {
             to_metric(scope).fmt_metric_labeled(f, &self.name, labels)?;
@@ -113,7 +114,6 @@ impl<'a, A: FmtLabels + 'a> FmtLabels for &'a A {
         (*self).fmt_labels(f)
     }
 }
-
 
 impl<A: FmtLabels, B: FmtLabels> FmtLabels for (A, B) {
     fn fmt_labels(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,21 +168,3 @@ impl FmtMetrics for () {
         Ok(())
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

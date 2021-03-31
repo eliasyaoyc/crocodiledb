@@ -3,22 +3,26 @@
 //! * `GET/log-level` -- returns the current serve tracing filter.
 //! * `PUT/log-level` -- sets a new tracing filter.
 //! * `POST/shutdown` -- shuts down the crocodile.
-mod readiness;
 mod client_handle;
+mod readiness;
 
 use futures::future;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::future::Future;
-use hyper::{body::{Body, HttpBody}, Request, Response, http, StatusCode};
 use tokio::sync::mpsc;
 
-use crate::admin::readiness::Readiness;
-use crate::{NewService, metrics};
-use std::task::{Context, Poll};
-use hyper::service::Service;
 use crate::admin::client_handle::ClientHandle;
+use crate::admin::readiness::Readiness;
+use crate::metrics::prom::FmtMetrics;
 use crate::tracing::Handle;
+use crate::{metrics, NewService};
+use http::StatusCode;
+use hyper::{
+    body::{Body, HttpBody},
+    Request, Response,
+};
+use std::task::{Context, Poll};
 
 #[derive(Clone)]
 pub struct Admin<M> {
@@ -30,7 +34,7 @@ pub struct Admin<M> {
 
 pub struct Accept<S> {
     service: S,
-    server: hyper::server,
+    server: hyper::server::conn::Http,
 }
 
 pub struct Serve<S> {
@@ -40,17 +44,19 @@ pub struct Serve<S> {
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-pub type ResponseFuture = Pin<Box<dyn Future<Output=Result<Response<Body>, Error>> + Send + 'static>>;
-
+pub type ResponseFuture =
+    Pin<Box<dyn Future<Output = Result<Response<Body>, Error>> + Send + 'static>>;
 
 impl<M> Admin<M> {
     pub fn new(
         metrics: M,
+        tracing: Handle,
         ready: Readiness,
         shutdown_tx: mpsc::UnboundedSender<()>,
     ) -> Self {
         Self {
-            metrics,
+            metrics: metrics::Serve::new(metrics),
+            tracing,
             ready,
             shutdown_tx,
         }
@@ -87,6 +93,13 @@ impl<M> Admin<M> {
             .expect("builder with known status code must not fail")
     }
 
+    fn method_not_allowed() -> Response<Body> {
+        Response::builder()
+            .status(http::StatusCode::METHOD_NOT_ALLOWED)
+            .body(Body::empty())
+            .expect("builder with known status code must not fail")
+    }
+
     fn forbidden_not_localhost() -> Response<Body> {
         Response::builder()
             .status(http::StatusCode::FORBIDDEN)
@@ -111,12 +124,12 @@ impl<M: FmtMetrics + Clone, T> NewService<T> for Admin<M> {
     }
 }
 
-impl<M, B> tower::Service<http::request<B>> for Admin<M>
-    where
-        M: FmtMetrics,
-        B: HttpBody + Send + Sync + 'static,
-        B::Error: Into<Error>,
-        B::Data: Send,
+impl<M, B> tower::Service<http::Request<B>> for Admin<M>
+where
+    M: FmtMetrics,
+    B: HttpBody + Send + Sync + 'static,
+    B::Error: Into<Error>,
+    B::Data: Send,
 {
     type Response = http::Response<Body>;
     type Error = Error;
@@ -139,14 +152,36 @@ impl<M, B> tower::Service<http::request<B>> for Admin<M>
                 if Self::client_is_localhost(&req) {
                     let handle = self.tracing.clone();
                     Box::pin(async move {
+                        handle.serve_level(req).await.or_else(|error| {
+                            tracing::error!(%error,"Failed to get/set tracing level");
+                            Ok(Self::internal_error_rsp(error))
+                        })
                     })
                 } else {
                     Box::pin(future::ok(Self::forbidden_not_localhost()))
                 }
             }
-            "/shutdown" => {}
+            "/shutdown" => {
+                if req.method() == http::Method::POST {
+                    if Self::client_is_localhost(&req) {
+                        Box::pin(future::ok(self.shutdown()))
+                    } else {
+                        Box::pin(future::ok(Self::forbidden_not_localhost()))
+                    }
+                } else {
+                    Box::pin(future::ok(Self::method_not_allowed()))
+                }
+            }
             path if path.starts_with("/tasks") => {
-                if self.client_is_localhost(&req) {} else {
+                if Self::client_is_localhost(&req) {
+                    let handle = self.tracing.clone();
+                    Box::pin(async move {
+                        handle.serve_tasks(req).await.or_else(|error| {
+                            tracing::error!(%error,"Failed to fetch tasks");
+                            Ok(Self::internal_error_rsp(error))
+                        })
+                    })
+                } else {
                     Box::pin(future::ok(Self::forbidden_not_localhost()))
                 }
             }
@@ -154,4 +189,3 @@ impl<M, B> tower::Service<http::request<B>> for Admin<M>
         }
     }
 }
-

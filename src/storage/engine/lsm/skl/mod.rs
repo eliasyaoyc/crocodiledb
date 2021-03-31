@@ -1,10 +1,12 @@
-use std::cmp::Ordering;
 use bytes::Bytes;
+use std::cmp::Ordering;
 use std::cmp::Ordering::Less;
 
 mod arena;
 mod slist;
 mod test_skip_list;
+
+const MAX_HEIGHT: usize = 20;
 
 pub trait KeyComparator: Clone {
     fn compare_key(&self, lhs: &[u8], rhs: &[u8]) -> Ordering;
@@ -26,15 +28,19 @@ impl KeyComparator for FixedLengthSuffixComparator {
     #[inline]
     fn compare_key(&self, lhs: &[u8], rhs: &[u8]) -> Ordering {
         if lhs.len() < self.len {
-            panic!("cannit compare with suffix {} : {:?}",
-                   self.len,
-                   Bytes::copy_from_slice(lhs));
+            panic!(
+                "cannit compare with suffix {} : {:?}",
+                self.len,
+                Bytes::copy_from_slice(lhs)
+            );
         }
 
         if rhs.len() < self.len {
-            panic!("cannit compare with suffix {} : {:?}",
-                   self.len,
-                   Bytes::copy_from_slice(rhs));
+            panic!(
+                "cannit compare with suffix {} : {:?}",
+                self.len,
+                Bytes::copy_from_slice(rhs)
+            );
         }
         let (l_p, l_s) = lhs.split_at(lhs.len() - self.len);
         let (r_p, r_s) = rhs.split_at(rhs.len() - self.len);

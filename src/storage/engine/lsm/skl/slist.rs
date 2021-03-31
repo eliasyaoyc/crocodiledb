@@ -1,10 +1,10 @@
+use super::arena::Arena;
+use crate::storage::engine::lsm::skl::{FixedLengthSuffixComparator, KeyComparator, MAX_HEIGHT};
 use bytes::Bytes;
 use rand::Rng;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
-use super::arena::Arena;
-use crate::storage::engine::lsm::skl::{KeyComparator, FixedLengthSuffixComparator};
 
 const HEIGHT_INCREASE: u32 = u32::MAX / 3;
 
@@ -222,8 +222,7 @@ impl<C: KeyComparator> SkipList<C> {
         // We do need to create a new node.
         let height = self.random_height();
         let node_offset = Node::alloc(&self.core.arena, key, value, height);
-        while height > list_height
-        {
+        while height > list_height {
             // Try to increase s.height via CAS.
             match self.core.height.compare_exchange_weak(
                 list_height,
@@ -406,8 +405,8 @@ unsafe impl<C: Send> Send for SkipList<C> {}
 unsafe impl<C: Sync> Sync for SkipList<C> {}
 
 pub struct IterRef<T, C>
-    where
-        T: AsRef<SkipList<C>>,
+where
+    T: AsRef<SkipList<C>>,
 {
     list: T,
     cursor: *const Node,

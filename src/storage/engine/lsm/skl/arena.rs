@@ -29,16 +29,28 @@ impl Arena {
         std::mem::forget(buf);
         Self {
             core: Arc::new(ArenaCore {
-                len: AtomicU32::new(1);
+                len: AtomicU32::new(1),
                 cap,
                 ptr,
-            })
+            }),
         }
     }
 
     #[inline]
     pub fn len(&self) -> u32 {
         self.core.len.load(Ordering::SeqCst)
+    }
+
+    pub fn alloc(&self, align: usize, siz: usize) -> u32 {
+        let align_mask = align - 1;
+        // Leave enough padding for align.
+        let size = siz + align_mask;
+        let offset = self.core.len.fetch_add(size as u32, Ordering::SeqCst);
+        // Calculate the correct align point, it equals to
+        // (offset + align_mask) / align * align.
+        let ptr_offset = (offset as usize + align_mask) & !align_mask;
+        assert!(offset as usize + size <= self.core.cap);
+        ptr_offset as u32
     }
 
     pub unsafe fn get_mut<N>(&self, offset: u32) -> *mut N {

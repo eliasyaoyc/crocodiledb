@@ -1,9 +1,9 @@
 use crate::metrics::prom::FmtMetrics;
-use hyper::{Request, http, Body};
 use deflate::{write::GzEncoder, CompressionOptions};
-use std::net::Shutdown::Write;
+use hyper::{http, Body, Request};
+use std::io::Write;
 
-mod prom;
+pub mod prom;
 
 /// Serve Prometheues metrics.
 #[derive(Debug, Clone)]

@@ -1,5 +1,5 @@
 mod lsm;
-mod memory;
+pub mod memory;
 
 /// Rewrite the golang sort.search.
 pub fn search<F>(n: usize, mut f: F) -> usize

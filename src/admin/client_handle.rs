@@ -1,3 +1,4 @@
+use hyper::http;
 use std::{
     future::Future,
     net::SocketAddr,
@@ -6,7 +7,6 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::Notify;
-use hyper::http;
 
 /// A server-set extension that holds information about the client.
 #[derive(Clone, Debug)]

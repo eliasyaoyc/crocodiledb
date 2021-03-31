@@ -1,15 +1,14 @@
+mod admin;
 mod config;
 mod error;
 mod kv;
+mod metrics;
 mod raft;
 mod sql;
 mod storage;
+mod tracing;
 mod types;
 mod util;
-mod admin;
-mod metrics;
-mod tracing;
-
 
 pub trait NewService<T> {
     type Service;
@@ -18,8 +17,8 @@ pub trait NewService<T> {
 }
 
 impl<F, T, S> NewService<T> for F
-    where
-        F: Fn(T) -> S,
+where
+    F: Fn(T) -> S,
 {
     type Service = S;
 
