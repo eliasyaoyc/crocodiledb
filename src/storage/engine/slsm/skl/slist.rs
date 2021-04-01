@@ -1,5 +1,5 @@
 use super::arena::Arena;
-use crate::storage::engine::lsm::skl::{FixedLengthSuffixComparator, KeyComparator, MAX_HEIGHT};
+use crate::storage::engine::slsm::skl::{FixedLengthSuffixComparator, KeyComparator, MAX_HEIGHT};
 use bytes::Bytes;
 use rand::Rng;
 use std::ptr::NonNull;
