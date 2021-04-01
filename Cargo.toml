@@ -47,7 +47,7 @@ features = ["env-filter", "fmt", "smallvec", "tracing-log", "json", "parking_lot
 
 [dev-dependencies]
 yatp = { git = "https://github.com/tikv/yatp.git" }
-criterion = "0.3.3"
+criterion = "0.3"
 pretty_assertions = "~0.6.1"
 
 
