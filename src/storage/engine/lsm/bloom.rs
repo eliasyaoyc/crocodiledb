@@ -129,6 +129,6 @@ fn test_small_bloom_filter() {
 
     assert!(f.may_contain(check_hash[0]));
     assert!(f.may_contain(check_hash[1]));
-    assert!(f.may_contain(check_hash[2]));
-    assert!(f.may_contain(check_hash[3]));
+    assert!(!f.may_contain(check_hash[2]));
+    assert!(!f.may_contain(check_hash[3]));
 }
