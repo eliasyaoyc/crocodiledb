@@ -463,7 +463,7 @@ impl<T: AsRef<SkipList<C>>, C: KeyComparator> IterRef<T, C> {
     #[inline]
     pub fn seek_to_first(&mut self) {
         unsafe {
-            let cursor_offset = (&*self.list.as_ref().core.head.as_ref()).next_offset(0);
+            let cursor_offset = (&*self.list.as_ref().core.head.as_ptr()).next_offset(0);
             self.cursor = self.list.as_ref().core.arena.get_mut(cursor_offset);
         }
     }
