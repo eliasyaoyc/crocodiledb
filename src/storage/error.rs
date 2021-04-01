@@ -30,6 +30,8 @@ pub enum Error {
     InternalErr(String),
     #[error("{0}")]
     InternalTnx(String),
+    #[error("Serialization failure, retry transaction")]
+    Serialization,
 }
 
 impl<T> From<PoisonError<T>> for Error {

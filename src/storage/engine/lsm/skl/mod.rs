@@ -3,8 +3,7 @@ use std::cmp::Ordering;
 use std::cmp::Ordering::Less;
 
 mod arena;
-mod slist;
-mod test_skip_list;
+pub mod slist;
 
 const MAX_HEIGHT: usize = 20;
 

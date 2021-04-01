@@ -1,8 +1,8 @@
 mod encoding;
-mod engine;
-mod error;
-mod mvcc;
-mod storage;
+pub mod engine;
+pub mod error;
+pub mod mvcc;
+pub mod storage;
 mod types;
 
-pub use storage::{Range, Scan, Storage,TestSuite,test};
+pub use storage::*;

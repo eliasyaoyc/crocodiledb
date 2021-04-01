@@ -143,7 +143,7 @@ impl Transaction {
         let session = storage.read()?;
         let mode = match session.get(&Key::TxnActive(id).encode())? {
             Some(ref v) => deserialize(v)?,
-            None => return Err(Error::InternalTnx("No active transaction".into())),
+            None => return Err(Error::InternalTnx(format!("No active transaction {}", id))),
         };
         let snapshot = match &mode {
             Mode::Snapshot { version } => Snapshot::restore(&session, *version)?,
@@ -305,9 +305,7 @@ impl Transaction {
             match Key::decode(&k)? {
                 Key::Record(_, version) => {
                     if !self.snapshot.is_visible(version) {
-                        return Err(Error::InternalTnx(
-                            "Serialization failure, retry transaction".into(),
-                        ));
+                        return Err(Error::Serialization);
                     }
                 }
                 k => {
@@ -571,69 +569,5 @@ impl Iterator for Scan {
 impl DoubleEndedIterator for Scan {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.try_next_back().transpose()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::storage::test::Test;
-    use super::*;
-
-    fn setup() -> MVCC {
-        MVCC::new(Box::new(Test::new()))
-    }
-
-    #[test]
-    fn test_begin() -> Result<()> {
-        let mvcc = setup();
-
-        let txn = mvcc.begin()?;
-        assert_eq!(1, txn.id());
-        assert_eq!(Mode::ReadWrite, txn.mode());
-        txn.commit()?;
-
-        let txn = mvcc.begin()?;
-        assert_eq!(2, txn.id());
-        txn.rollback()?;
-
-        let txn = mvcc.begin()?;
-        assert_eq!(3, txn.id());
-        txn.commit()?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_begin_with_mode_readonly() -> Result<()> {
-        let mvcc = setup();
-        let txn = mvcc.begin_with_mode(Mode::ReadOnly)?;
-        assert_eq!(1, txn.id());
-        assert_eq!(Mode::ReadOnly, txn.mode());
-        txn.commit()?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_begin_with_mode_readwrite() -> Result<()> {
-        let mvcc = setup();
-        let txn = mvcc.begin_with_mode(Mode::ReadWrite)?;
-        assert_eq!(1, txn.id());
-        assert_eq!(Mode::ReadWrite, txn.mode());
-        txn.commit()?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_metadata() ->Result<()> {
-        let mvcc = setup();
-
-        mvcc.set_metadata(b"foo",b"bar".to_vec())?;
-        assert_eq!(Some(b"bar".to_vec()), mvcc.get_metadata(b"foo")?);
-
-        assert_eq!(None, mvcc.get_metadata(b"x")?);
-
-        mvcc.set_metadata(b"foo",b"baz".to_vec())?;
-        assert_eq!(Some(b"baz".to_vec()), mvcc.get_metadata(b"foo")?);
-        Ok(())
     }
 }

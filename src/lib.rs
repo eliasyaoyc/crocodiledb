@@ -5,7 +5,7 @@ mod kv;
 mod metrics;
 mod raft;
 mod sql;
-mod storage;
+pub mod storage;
 mod tracing;
 mod types;
 mod util;
