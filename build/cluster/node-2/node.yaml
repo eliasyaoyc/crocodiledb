@@ -1,0 +1,9 @@
+id: node-2
+data_dir: node-2/data
+sync: false
+listen_sql: 0.0.0.0:9602
+listen_raft: 0.0.0.0:9702
+listen_admin: 0.0.0.0:9802
+peers:
+  node-1: 127.0.0.1:9701
+  node-3: 127.0.0.1:9703
