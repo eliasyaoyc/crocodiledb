@@ -49,11 +49,3 @@ features = ["env-filter", "fmt", "smallvec", "tracing-log", "json", "parking_lot
 yatp = { git = "https://github.com/tikv/yatp.git" }
 criterion = "0.3"
 pretty_assertions = "~0.6.1"
-
-
-
-
-[[bench]]
-name = "lsm"
-path = "benches/lsm.rs"
-harness = false

@@ -1,12 +1,12 @@
 use bytes::*;
+use crocodile::storage::engine::lsm::skl::slist::SkipList;
+use crocodile::storage::engine::lsm::skl::FixedLengthSuffixComparator;
 use std::str;
 use std::sync::atomic::*;
 use std::sync::*;
 use std::thread::yield_now;
 use std::time::Duration;
 use yatp::task::callback::Handle;
-use crocodile::storage::engine::lsm::skl::FixedLengthSuffixComparator;
-use crocodile::storage::engine::lsm::skl::slist::SkipList;
 
 const ARENA_SIZE: u32 = 1 << 20;
 

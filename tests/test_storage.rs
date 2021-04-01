@@ -1,11 +1,11 @@
 mod mvcc;
 mod test_skip_list;
 
+use crocodile::storage::engine::memory::Memory;
+use crocodile::storage::error::{Error, Result};
+use crocodile::storage::{Range, Scan, Storage, TestSuite};
 use std::fmt::Display;
 use std::sync::{Arc, RwLock};
-use crocodile::storage::engine::memory::Memory;
-use crocodile::storage::{Storage, Range, Scan, TestSuite};
-use crocodile::storage::error::{Error, Result};
 
 /// Key-value storage backend for testing. Protects an inner Memory backend using a mutex, so it can
 /// be cloned and inspected.
@@ -17,7 +17,9 @@ pub struct Test {
 impl Test {
     /// Creates a new Test key-value storage engine.
     pub fn new() -> Self {
-        Self { kv: Arc::new(RwLock::new(Memory::new())) }
+        Self {
+            kv: Arc::new(RwLock::new(Memory::new())),
+        }
     }
 }
 
@@ -42,7 +44,14 @@ impl Storage for Test {
 
     fn scan(&self, range: Range) -> Scan {
         // Since the mutex guard is scoped to this method, we simply buffer the result.
-        Box::new(self.kv.read().unwrap().scan(range).collect::<Vec<Result<_>>>().into_iter())
+        Box::new(
+            self.kv
+                .read()
+                .unwrap()
+                .scan(range)
+                .collect::<Vec<Result<_>>>()
+                .into_iter(),
+        )
     }
 
     fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {

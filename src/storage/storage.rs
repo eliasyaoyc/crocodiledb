@@ -133,14 +133,20 @@ pub trait TestSuite<S: Storage> {
         expect.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(expect, s.scan(Range::from(..)).collect::<Result<Vec<_>>>()?);
         expect.reverse();
-        assert_eq!(expect, s.scan(Range::from(..)).rev().collect::<Result<Vec<_>>>()?);
+        assert_eq!(
+            expect,
+            s.scan(Range::from(..)).rev().collect::<Result<Vec<_>>>()?
+        );
 
         // Remove the items
         for (key, _) in items {
             s.delete(&key)?;
             assert_eq!(None, s.get(&key)?);
         }
-        assert!(s.scan(Range::from(..)).collect::<Result<Vec<_>>>()?.is_empty());
+        assert!(s
+            .scan(Range::from(..))
+            .collect::<Result<Vec<_>>>()?
+            .is_empty());
 
         Ok(())
     }
@@ -160,7 +166,8 @@ pub trait TestSuite<S: Storage> {
                 (b"ba".to_vec(), vec![0x02, 0x01]),
                 (b"bb".to_vec(), vec![0x02, 0x02]),
             ],
-            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec())).collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec()))
+                .collect::<Result<Vec<_>>>()?
         );
         assert_eq!(
             vec![
@@ -168,13 +175,19 @@ pub trait TestSuite<S: Storage> {
                 (b"ba".to_vec(), vec![0x02, 0x01]),
                 (b"b".to_vec(), vec![0x02]),
             ],
-            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec())).rev().collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(b"b".to_vec()..b"bz".to_vec()))
+                .rev()
+                .collect::<Result<Vec<_>>>()?
         );
 
         // Inclusive/exclusive ranges
         assert_eq!(
-            vec![(b"b".to_vec(), vec![0x02]), (b"ba".to_vec(), vec![0x02, 0x01]),],
-            s.scan(Range::from(b"b".to_vec()..b"bb".to_vec())).collect::<Result<Vec<_>>>()?
+            vec![
+                (b"b".to_vec(), vec![0x02]),
+                (b"ba".to_vec(), vec![0x02, 0x01]),
+            ],
+            s.scan(Range::from(b"b".to_vec()..b"bb".to_vec()))
+                .collect::<Result<Vec<_>>>()?
         );
         assert_eq!(
             vec![
@@ -182,17 +195,23 @@ pub trait TestSuite<S: Storage> {
                 (b"ba".to_vec(), vec![0x02, 0x01]),
                 (b"bb".to_vec(), vec![0x02, 0x02]),
             ],
-            s.scan(Range::from(b"b".to_vec()..=b"bb".to_vec())).collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(b"b".to_vec()..=b"bb".to_vec()))
+                .collect::<Result<Vec<_>>>()?
         );
 
         // Open ranges
         assert_eq!(
-            vec![(b"bb".to_vec(), vec![0x02, 0x02]), (b"c".to_vec(), vec![0x03]),],
-            s.scan(Range::from(b"bb".to_vec()..)).collect::<Result<Vec<_>>>()?
+            vec![
+                (b"bb".to_vec(), vec![0x02, 0x02]),
+                (b"c".to_vec(), vec![0x03]),
+            ],
+            s.scan(Range::from(b"bb".to_vec()..))
+                .collect::<Result<Vec<_>>>()?
         );
         assert_eq!(
             vec![(b"a".to_vec(), vec![0x01]), (b"b".to_vec(), vec![0x02]),],
-            s.scan(Range::from(..=b"b".to_vec())).collect::<Result<Vec<_>>>()?
+            s.scan(Range::from(..=b"b".to_vec()))
+                .collect::<Result<Vec<_>>>()?
         );
 
         // Full range

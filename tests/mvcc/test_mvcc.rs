@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crocodile::storage::error::{Error, Result};
-    use crocodile::storage::mvcc::{MVCC, Mode};
     use crate::Test;
+    use crocodile::storage::error::{Error, Result};
+    use crocodile::storage::mvcc::{Mode, MVCC};
 
     fn setup() -> MVCC {
         MVCC::new(Box::new(Test::new()))
@@ -83,7 +83,9 @@ mod tests {
         // Check that any future transaction IDs are invalid
         assert_eq!(
             mvcc.begin_with_mode(Mode::Snapshot { version: 9 }).err(),
-            Some(Error::InternalTnx("Snapshot not found for version: 9".into()))
+            Some(Error::InternalTnx(
+                "Snapshot not found for version: 9".into()
+            ))
         );
 
         // Check that concurrent transactions are hidden from snapshots of snapshot transactions.
@@ -173,7 +175,10 @@ mod tests {
         ts.commit()?;
 
         // Resuming an inactive transaction should error.
-        assert_eq!(mvcc.resume(7).err(), Some(Error::InternalTnx("No active transaction 7".into())));
+        assert_eq!(
+            mvcc.resume(7).err(),
+            Some(Error::InternalTnx("No active transaction 7".into()))
+        );
 
         Ok(())
     }
@@ -367,8 +372,14 @@ mod tests {
         // Alternate forward/backward scan
         let mut scan = txn.scan(..)?;
         assert_eq!(Some((b"a".to_vec(), vec![0x01])), scan.next().transpose()?);
-        assert_eq!(Some((b"e".to_vec(), vec![0x05])), scan.next_back().transpose()?);
-        assert_eq!(Some((b"c".to_vec(), vec![0x03])), scan.next_back().transpose()?);
+        assert_eq!(
+            Some((b"e".to_vec(), vec![0x05])),
+            scan.next_back().transpose()?
+        );
+        assert_eq!(
+            Some((b"c".to_vec(), vec![0x03])),
+            scan.next_back().transpose()?
+        );
         assert_eq!(None, scan.next().transpose()?);
         std::mem::drop(scan);
 
@@ -397,7 +408,10 @@ mod tests {
 
         let txn = mvcc.begin()?;
         assert_eq!(
-            vec![(vec![0].to_vec(), vec![3]), (vec![0, 0, 0, 0, 0, 0, 0, 0, 2].to_vec(), vec![2]), ],
+            vec![
+                (vec![0].to_vec(), vec![3]),
+                (vec![0, 0, 0, 0, 0, 0, 0, 0, 2].to_vec(), vec![2]),
+            ],
             txn.scan(..)?.collect::<Result<Vec<_>>>()?
         );
         Ok(())
@@ -443,9 +457,18 @@ mod tests {
         // Alternate forward/backward scan
         let mut scan = txn.scan_prefix(b"b")?;
         assert_eq!(Some((b"b".to_vec(), vec![0x02])), scan.next().transpose()?);
-        assert_eq!(Some((b"bc".to_vec(), vec![0x02, 0x03])), scan.next_back().transpose()?);
-        assert_eq!(Some((b"bb".to_vec(), vec![0x02, 0x02])), scan.next_back().transpose()?);
-        assert_eq!(Some((b"ba".to_vec(), vec![0x02, 0x01])), scan.next().transpose()?);
+        assert_eq!(
+            Some((b"bc".to_vec(), vec![0x02, 0x03])),
+            scan.next_back().transpose()?
+        );
+        assert_eq!(
+            Some((b"bb".to_vec(), vec![0x02, 0x02])),
+            scan.next_back().transpose()?
+        );
+        assert_eq!(
+            Some((b"ba".to_vec(), vec![0x02, 0x01])),
+            scan.next().transpose()?
+        );
         assert_eq!(None, scan.next_back().transpose()?);
         std::mem::drop(scan);
 
@@ -619,13 +642,11 @@ mod tests {
         assert_eq!(Some(b"true".to_vec()), t1.get(b"a")?);
         assert_eq!(Some(b"false".to_vec()), t1.get(b"b")?);
 
-
         let t3 = mvcc.begin()?;
         assert_eq!(Some(b"true".to_vec()), t3.get(b"b")?);
 
         Ok(())
     }
-
 
     #[test]
     fn test_metadata() -> Result<()> {

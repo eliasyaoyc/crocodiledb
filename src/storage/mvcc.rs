@@ -513,7 +513,7 @@ impl Scan {
                 Key::Record(key, _) => Ok(Some((key.into_owned(), v))),
                 k => Err(Error::InternalErr(format!("Excepted Record, got {:?}", k))),
             })
-                .transpose()
+            .transpose()
         }));
         Self {
             scan: scan.peekable(),

@@ -45,7 +45,9 @@ impl Memory {
         if capacity < 2 {
             return Err(ParamCapacityrErr);
         }
-        Ok(Self { root: Arc::new(RwLock::new(Node::Root(Children::new(DEFAULT_CAPACITY)))) })
+        Ok(Self {
+            root: Arc::new(RwLock::new(Node::Root(Children::new(DEFAULT_CAPACITY)))),
+        })
     }
 }
 
@@ -160,7 +162,9 @@ impl Node {
                 if let Some((split_key, split_children)) = children.set(key, value) {
                     let mut root_children = Children::new(children.capacity());
                     root_children.keys.push(split_key);
-                    root_children.nodes.push(Node::Inner(replace(children, Children::empty())));
+                    root_children
+                        .nodes
+                        .push(Node::Inner(replace(children, Children::empty())));
                     root_children.nodes.push(Node::Inner(split_children));
                     *children = root_children;
                 }
@@ -230,7 +234,10 @@ impl Children {
 
     /// Creates an empty child set, for use with replace().
     fn empty() -> Self {
-        Self { keys: Vec::new(), nodes: Vec::new() }
+        Self {
+            keys: Vec::new(),
+            nodes: Vec::new(),
+        }
     }
 
     /// Deletes a key from the children, if it exists.
@@ -330,7 +337,11 @@ impl Children {
     /// Looks up the child responsible for a given key. This can only be called on non-empty
     /// child sets, which should be all child sets except for the initial root node.
     fn lookup(&self, key: &[u8]) -> (usize, &Node) {
-        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
+        let i = self
+            .keys
+            .iter()
+            .position(|k| k.deref() > key)
+            .unwrap_or_else(|| self.keys.len());
         (i, &self[i])
     }
 
@@ -338,10 +349,13 @@ impl Children {
     /// can only be called on non-empty child sets, which should be all child sets except for the
     /// initial root node.
     fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
-        let i = self.keys.iter().position(|k| k.deref() > key).unwrap_or_else(|| self.keys.len());
+        let i = self
+            .keys
+            .iter()
+            .position(|k| k.deref() > key)
+            .unwrap_or_else(|| self.keys.len());
         (i, &mut self[i])
     }
-
 
     /// Merges the node at index i with it's right sibling.
     /// TODO How to do if after merged that the newest node capacity gather than limited？
@@ -504,7 +518,13 @@ impl Children {
                 }
             };
 
-            Some((split_key, Children { keys: rkeys, nodes: rnodes }))
+            Some((
+                split_key,
+                Children {
+                    keys: rkeys,
+                    nodes: rnodes,
+                },
+            ))
         } else {
             None
         }
@@ -653,7 +673,12 @@ struct Iter {
 impl Iter {
     /// Creates a new iterator.
     fn new(root: Arc<RwLock<Node>>, range: Range) -> Self {
-        Self { root, range, front_cursor: None, back_cursor: None }
+        Self {
+            root,
+            range,
+            front_cursor: None,
+            back_cursor: None,
+        }
     }
 
     // next() with error handling.
@@ -661,9 +686,10 @@ impl Iter {
         let root = self.root.read()?;
         let next = match &self.front_cursor {
             None => match &self.range.start {
-                Bound::Included(k) => {
-                    root.get(k).map(|v| (k.clone(), v)).or_else(|| root.get_next(k))
-                }
+                Bound::Included(k) => root
+                    .get(k)
+                    .map(|v| (k.clone(), v))
+                    .or_else(|| root.get_next(k)),
                 Bound::Excluded(k) => root.get_next(k),
                 Bound::Unbounded => root.get_first(),
             },
@@ -688,9 +714,10 @@ impl Iter {
         let root = self.root.read()?;
         let prev = match &self.back_cursor {
             None => match &self.range.end {
-                Bound::Included(k) => {
-                    root.get(k).map(|v| (k.clone(), v)).or_else(|| root.get_prev(k))
-                }
+                Bound::Included(k) => root
+                    .get(k)
+                    .map(|v| (k.clone(), v))
+                    .or_else(|| root.get_prev(k)),
                 Bound::Excluded(k) => root.get_prev(k),
                 Bound::Unbounded => root.get_last(),
             },
@@ -728,7 +755,8 @@ impl DoubleEndedIterator for Iter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::storage::TestSuite;
+    use crate::storage::TestSuite;
+    use pretty_assertions::assert_eq;
 
     impl TestSuite<Memory> for Memory {
         fn setup() -> Result<Self> {
@@ -737,12 +765,12 @@ mod tests {
     }
 
     #[test]
-    fn test() -> Result<()> {
+    fn tests() -> Result<()> {
         Memory::test()
     }
 
     #[test]
-    fn t_set_split() -> Result<()> {
+    fn set_split() -> Result<()> {
         // Create a root of order 3
         let mut root = Node::Root(Children::new(3));
 
@@ -750,11 +778,12 @@ mod tests {
         assert_eq!(
             Node::Root(Children {
                 keys: vec![],
-                nodes: vec![],
+                nodes: vec![]
             }),
             root
         );
 
+        // Setting the first three values should create a leaf node and fill it
         root.set(b"a", vec![0x01]);
         root.set(b"b", vec![0x02]);
         root.set(b"c", vec![0x03]);
@@ -766,12 +795,12 @@ mod tests {
                     (b"a".to_vec(), vec![0x01]),
                     (b"b".to_vec(), vec![0x02]),
                     (b"c".to_vec(), vec![0x03]),
-                ]), )],
+                ]),)],
             }),
             root
         );
 
-        // Updating a node should not case splitting
+        // Updating a node should not cause splitting
         root.set(b"b", vec![0x20]);
 
         assert_eq!(
@@ -779,14 +808,14 @@ mod tests {
                 keys: vec![],
                 nodes: vec![Node::Leaf(Values(vec![
                     (b"a".to_vec(), vec![0x01]),
-                    (b"b".to_vec(), vec![0x020]),
+                    (b"b".to_vec(), vec![0x20]),
                     (b"c".to_vec(), vec![0x03]),
                 ]))],
             }),
             root
         );
 
-        // Setting an additional value should split the leaf node.
+        // Setting an additional value should split the leaf node
         root.set(b"b", vec![0x02]);
         root.set(b"d", vec![0x04]);
 
@@ -872,7 +901,12 @@ mod tests {
             root
         );
 
-        // Adding further values should cause the first inner node to finally split as well
+        // Adding further values should cause the first inner node to finally split as well.
+        root.set(b"e", vec![0x05]);
+        root.set(b"f", vec![0x06]);
+        root.set(b"g", vec![0x07]);
+        root.set(b"h", vec![0x08]);
+
         assert_eq!(
             Node::Root(Children {
                 keys: vec![b"e".to_vec(), b"w".to_vec()],
@@ -921,7 +955,7 @@ mod tests {
             root
         );
 
-        // Adding yet mode from the back, but in forward order, should cause another root node split.
+        // Adding yet more from the back, but in forward order, should cause another root node split.
         root.set(b"s", vec![0x13]);
         root.set(b"t", vec![0x14]);
         root.set(b"u", vec![0x15]);
@@ -991,17 +1025,18 @@ mod tests {
                                     ]))
                                 ],
                             })
-                        ],
+                        ]
                     })
                 ],
             }),
             root
         );
+
         Ok(())
     }
 
     #[test]
-    fn t_delete_merge() -> Result<()> {
+    fn delete_merge() -> Result<()> {
         // Create a root of order 3, and add a bunch of values to it.
         let mut root = Node::Root(Children::new(3));
 
@@ -1086,7 +1121,7 @@ mod tests {
                                     ])),
                                 ],
                             })
-                        ],
+                        ]
                     })
                 ],
             }),
@@ -1366,7 +1401,7 @@ mod tests {
         assert_eq!(
             Node::Root(Children {
                 keys: vec![],
-                nodes: vec![],
+                nodes: vec![]
             }),
             root
         );
