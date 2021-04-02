@@ -25,6 +25,7 @@ deflate = { version = "0.7.18", features = ["gzip"] }
 tracing = "0.1.23"
 tokio-trace = { git = "https://github.com/hawkw/tokio-trace", rev = "7d5998e7cb3beb06ada5983675319dc4853576c5", features = ["serde"] }
 html-escape = "0.2.5"
+memmap = "0.7"
 
 [dependencies.tower]
 version = "0.4"

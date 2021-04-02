@@ -46,3 +46,5 @@ pub mod skl;
 pub mod table;
 mod wal;
 mod compressor;
+mod memtable;
+mod fence;
