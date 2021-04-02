@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use crate::storage::engine::error::{Error, Result};
+use crate::storage::error::{Error, Result};
 
 #[derive(Clone, Debug, Default)]
 pub struct FencePointer {

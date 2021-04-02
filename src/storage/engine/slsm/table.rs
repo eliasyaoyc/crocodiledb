@@ -8,7 +8,7 @@ use memmap::{Mmap, MmapOptions};
 use std::sync::Arc;
 use std::path::{PathBuf, Path};
 use crate::storage::engine::slsm::fence::FencePointer;
-use crate::storage::engine::error::{Error, Result};
+use crate::storage::error::{Error, Result};
 use crate::storage::config::StorageConfig;
 use std::io::Write;
 use futures::future::err;
@@ -38,7 +38,7 @@ impl MmapFile {
 
     pub fn open(path: &Path, file: std::fs::File) -> Result<Self> {
         let mmap = unsafe {
-            MmapOptions::new().map(&file)?
+            MmapOptions::new().map(&file).unwrap()
         };
         Ok(MmapFile::File {
             name: path.to_path_buf(), // full-path
@@ -78,8 +78,8 @@ impl TableInner {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(path)?;
-        file.write_all(&data)?;
+            .open(path).unwrap();
+        file.write_all(&data).unwrap();
         // TODO: pass file object directly to open and sync write
         drop(file);
         Self::open(path, conf)
@@ -91,14 +91,14 @@ impl TableInner {
             .read(true)
             .write(false)
             .create(false)
-            .open(path)?;
+            .open(path).unwrap();
         let file_name = path.file_name().unwrap().to_str().unwrap();
-        let id = parse_file_id(file_name)?;
-        let meta = file.metadata()?;
+        let id = parse_file_id(file_name).unwrap();
+        let meta = file.metadata().unwrap();
         let table_siz = meta.len();
         let mut inner = TableInner {
             id,
-            file: MmapFile::open(path, file)?,
+            file: MmapFile::open(path, file).unwrap(),
             table_size: table_siz as usize,
             fence_pointer: FencePointer::new(),
             checksum: Default::default(),

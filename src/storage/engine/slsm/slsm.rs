@@ -1,7 +1,7 @@
 //! The slsm outermost layer.
 use std::fmt::{Display, Formatter};
 use crate::storage::{Storage, Scan, Range};
-use crate::storage::engine::error::{Error, Result};
+use crate::storage::error::{Error, Result};
 
 pub struct Slsm {}
 

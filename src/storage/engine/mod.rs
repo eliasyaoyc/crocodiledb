@@ -7,4 +7,3 @@
 pub mod slsm;
 pub mod memory;
 pub mod wisclsm;
-mod error;

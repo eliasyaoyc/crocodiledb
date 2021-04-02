@@ -1,4 +1,4 @@
-use crate::storage::engine::error::{Error, Result};
+use crate::storage::error::{Error, Result};
 use crate::storage::engine::slsm::skl::{
     FixedLengthSuffixComparator,
     slist::SkipList,
