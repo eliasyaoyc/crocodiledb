@@ -1,5 +1,5 @@
-use crate::storage::error::Error::ParamCapacityrErr;
-use crate::storage::error::{Error, Result};
+use crate::storage::engine::error::Error::ParamCapacityrErr;
+use crate::storage::engine::error::{Error, Result};
 use crate::storage::storage::{Range, Scan};
 use crate::storage::types::Value;
 use crate::storage::Storage;
