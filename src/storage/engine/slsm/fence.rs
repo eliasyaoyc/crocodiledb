@@ -1,5 +1,5 @@
-use bytes::Bytes;
 use crate::storage::error::{Error, Result};
+use bytes::Bytes;
 
 #[derive(Clone, Debug, Default)]
 pub struct FencePointer {
@@ -13,10 +13,7 @@ impl FencePointer {
     }
 
     pub fn with_min_max(minimum: Bytes, maximum: Bytes) -> Self {
-        Self {
-            minimum,
-            maximum,
-        }
+        Self { minimum, maximum }
     }
 
     /// Return the minimum key in current SST,normally this value will not be empty.

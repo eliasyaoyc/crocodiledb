@@ -1,8 +1,5 @@
 use bytes::*;
-use crocodile::storage::engine::slsm::skl::{
-    slist::SkipList,
-    FixedLengthSuffixComparator,
-};
+use crocodile::storage::engine::slsm::skl::{slist::SkipList, FixedLengthSuffixComparator};
 use std::str;
 use std::sync::atomic::*;
 use std::sync::*;

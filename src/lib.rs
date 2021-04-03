@@ -1,9 +1,12 @@
-mod admin;
+pub mod admin;
 mod config;
-mod error;
+pub mod error;
+
 mod kv;
+mod main;
 mod metrics;
 mod raft;
+pub mod signal;
 mod sql;
 pub mod storage;
 mod tracing;

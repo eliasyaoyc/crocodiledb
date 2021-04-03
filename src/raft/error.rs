@@ -28,5 +28,4 @@ pub enum Error {
     Serialization,
 }
 
-
 pub type Result<T> = std::result::Result<T, Error>;

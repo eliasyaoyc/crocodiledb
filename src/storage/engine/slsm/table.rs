@@ -1,17 +1,15 @@
-mod builder;
-mod concat_iterator;
-mod iterator;
-mod merge_iterator;
-
+use crate::storage::{
+    config::StorageConfig,
+    engine::slsm::fence::FencePointer,
+    error::{Error, Result},
+    Range, Scan,
+};
 use bytes::{Buf, Bytes};
-use memmap::{Mmap, MmapOptions};
-use std::sync::Arc;
-use std::path::{PathBuf, Path};
-use crate::storage::engine::slsm::fence::FencePointer;
-use crate::storage::error::{Error, Result};
-use crate::storage::config::StorageConfig;
-use std::io::Write;
 use futures::future::err;
+use memmap::{Mmap, MmapOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// MmapFile stores SST data. `File` refers to a file on disk.
 /// and `Memory` refers to data in memory.
@@ -37,9 +35,7 @@ impl MmapFile {
     }
 
     pub fn open(path: &Path, file: std::fs::File) -> Result<Self> {
-        let mmap = unsafe {
-            MmapOptions::new().map(&file).unwrap()
-        };
+        let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
         Ok(MmapFile::File {
             name: path.to_path_buf(), // full-path
             file,
@@ -78,7 +74,8 @@ impl TableInner {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(path).unwrap();
+            .open(path)
+            .unwrap();
         file.write_all(&data).unwrap();
         // TODO: pass file object directly to open and sync write
         drop(file);
@@ -91,7 +88,8 @@ impl TableInner {
             .read(true)
             .write(false)
             .create(false)
-            .open(path).unwrap();
+            .open(path)
+            .unwrap();
         let file_name = path.file_name().unwrap().to_str().unwrap();
         let id = parse_file_id(file_name).unwrap();
         let meta = file.metadata().unwrap();
@@ -120,8 +118,28 @@ impl Table {
     /// Create an SST from bytes data generated with table builder.
     pub fn create(path: &Path, data: Bytes, conf: StorageConfig) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(TableInner::create(path, data, conf)?)
+            inner: Arc::new(TableInner::create(path, data, conf)?),
         })
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        todo!()
+    }
+
+    fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
+        todo!()
+    }
+
+    fn delete(&mut self, key: &[u8]) -> Result<()> {
+        todo!()
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn scan(&self, range: Range) -> Scan {
+        todo!()
     }
 }
 
@@ -147,13 +165,12 @@ impl TableIndex {
     }
 }
 
-
 fn parse_file_id(file_name: &str) -> Result<u64> {
     if !file_name.ends_with(".sst") {
         return Err(Error::InvalidFilename(file_name.to_string()));
     }
     match file_name[..file_name.len() - 4].parse() {
         Ok(id) => Ok(id),
-        Err(_) => Err(Error::InvalidFilename(file_name.to_string()))
+        Err(_) => Err(Error::InvalidFilename(file_name.to_string())),
     }
 }

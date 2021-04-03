@@ -1,15 +1,12 @@
+use crate::storage::engine::slsm::skl::{slist::SkipList, FixedLengthSuffixComparator};
 use crate::storage::error::{Error, Result};
-use crate::storage::engine::slsm::skl::{
-    FixedLengthSuffixComparator,
-    slist::SkipList,
-};
-use crate::storage::{Scan, Range};
+use crate::storage::{Range, Scan};
 
 /// MemTable represent the active table so that all modified operations
 /// will happened on.
 #[derive(Clone)]
 pub struct MemTable {
-    skl: SkipList<FixedLengthSuffixComparator>
+    skl: SkipList<FixedLengthSuffixComparator>,
 }
 
 impl MemTable {
