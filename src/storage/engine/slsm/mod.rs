@@ -46,3 +46,5 @@ mod memtable;
 pub mod skl;
 mod slsm;
 pub mod table;
+
+pub static Deleted: &str = "Deleted";

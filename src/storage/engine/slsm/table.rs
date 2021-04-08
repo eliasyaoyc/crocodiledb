@@ -69,7 +69,7 @@ pub struct Table {
 }
 
 impl TableInner {
-    pub fn create(path: &Path, data: Bytes, conf: StorageConfig) -> Result<Self> {
+    pub fn create(path: &Path, data: Bytes, conf: &StorageConfig) -> Result<Self> {
         let mut file = std::fs::OpenOptions::new()
             .create_new(true)
             .read(true)
@@ -83,7 +83,7 @@ impl TableInner {
     }
 
     /// Open an existing SST on disk.
-    pub fn open(path: &Path, conf: StorageConfig) -> Result<Self> {
+    pub fn open(path: &Path, conf: &StorageConfig) -> Result<Self> {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(false)
@@ -102,7 +102,7 @@ impl TableInner {
             checksum: Default::default(),
             estimated_size: 0,
             index: TableIndex::new(),
-            conf,
+            conf: conf.clone(),
         };
         inner.init_fence_pointer();
 
@@ -115,30 +115,36 @@ impl TableInner {
 }
 
 impl Table {
+    pub fn create(config: &StorageConfig) -> Result<Self> {
+        Ok(Self {
+            inner: Arc::new(TableInner::create(config.dir.as_path(), Bytes::new(), config)?)
+        })
+    }
+
     /// Create an SST from bytes data generated with table builder.
-    pub fn create(path: &Path, data: Bytes, conf: StorageConfig) -> Result<Self> {
+    pub fn create_with_argus(&self, path: &Path, data: Bytes, conf: &StorageConfig) -> Result<Self> {
         Ok(Self {
             inner: Arc::new(TableInner::create(path, data, conf)?),
         })
     }
 
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         todo!()
     }
 
-    fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
+    pub(crate) fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
         todo!()
     }
 
-    fn delete(&mut self, key: &[u8]) -> Result<()> {
+    pub(crate) fn delete(&mut self, key: &[u8]) -> Result<()> {
         todo!()
     }
 
-    fn flush(&mut self) -> Result<()> {
+    pub(crate) fn flush(&mut self) -> Result<()> {
         todo!()
     }
 
-    fn scan(&self, range: Range) -> Scan {
+    pub(crate) fn scan(&self, range: Range) -> Scan {
         todo!()
     }
 }
