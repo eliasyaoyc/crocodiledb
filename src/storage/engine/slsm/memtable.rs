@@ -1,23 +1,44 @@
-use crate::storage::engine::slsm::skl::{slist::SkipList, FixedLengthSuffixComparator};
+use crate::storage::engine::slsm::skl::{slist::SkipList, FixedLengthSuffixComparator, KeyComparator};
 use crate::storage::error::{Error, Result};
 use crate::storage::{Range, Scan, Storage};
 use crate::storage::config::StorageConfig;
+use crate::storage::engine::slsm::fence::FencePointer;
+use bytes::Bytes;
+use priority_queue::PriorityQueue;
 
 /// MemTable represent the active table so that all modified operations
 /// will happened on.
-pub struct MemTable {
-    skl: SkipList<FixedLengthSuffixComparator>,
+pub struct MemTable<T: KeyComparator> {
+    config: StorageConfig,
+    runs: PriorityQueue<u64, Run<T>>,
 }
 
-impl MemTable {
-    pub(crate) fn create(config: &StorageConfig) -> Result<MemTable> {
+struct Run<T> {
+    id: u64,
+    siz: usize,
+    checksum: Bytes,
+    fence_pointer: FencePointer,
+    // true if there's bloom filter in run.
+    has_bloom_filter: bool,
+    skl: SkipList<T>,
+}
+
+impl MemTable<T> {
+    pub(crate) fn create(config: &StorageConfig) -> Result<MemTable<T>> {
         let comp = FixedLengthSuffixComparator::new(8);
         Ok(Self {
-            skl: SkipList::with_capacity(comp, 1 << 20)
+            config: config.clone(),
+            // skl: SkipList::with_capacity(comp, 1 << 20),
+            runs: PriorityQueue::new(),
         })
     }
 
+    /// create_run that create a active run to storage data.
     pub(crate) fn create_run(&self) -> Result<()> {
+        if !self.can_create_run() {
+            return Err(Error::InternalErr("Create run in memory failed.".to_string()));
+        }
+
         Ok(())
     }
 

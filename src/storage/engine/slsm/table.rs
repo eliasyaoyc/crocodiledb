@@ -57,6 +57,8 @@ pub struct TableInner {
     checksum: Bytes,
     /// only used on encryption or compression
     estimated_size: usize,
+    // true if there's bloom filter in table
+    has_bloom_filter: bool,
     /// index of SST.
     index: TableIndex,
     conf: StorageConfig,
@@ -101,6 +103,7 @@ impl TableInner {
             fence_pointer: FencePointer::new(),
             checksum: Default::default(),
             estimated_size: 0,
+            has_bloom_filter: true,
             index: TableIndex::new(),
             conf: conf.clone(),
         };

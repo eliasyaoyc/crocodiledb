@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use bytes::Bytes;
 use std::sync::RwLock;
 use crate::storage::engine::slsm::Deleted;
+use crate::storage::engine::slsm::skl::FixedLengthSuffixComparator;
 
 pub struct SLSM {
     pub(crate) config: StorageConfig,
