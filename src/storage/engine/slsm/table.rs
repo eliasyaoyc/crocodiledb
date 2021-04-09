@@ -118,6 +118,10 @@ impl TableInner {
 }
 
 impl Table {
+    pub(crate) fn start(&self) -> Result<()> {
+        Ok(())
+    }
+
     pub fn create(config: &StorageConfig) -> Result<Self> {
         Ok(Self {
             inner: Arc::new(TableInner::create(config.dir.as_path(), Bytes::new(), config)?)

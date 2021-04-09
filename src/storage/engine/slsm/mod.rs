@@ -40,7 +40,7 @@
 //! > merge a proportion m of the existing runs in the buffer to disk when memory-buffer is full. use the heap to optimize the merge operation,even with a minimum heap for the merge operation.
 mod bloom;
 mod checksum;
-mod compressor;
+mod compaction;
 mod fence;
 mod memtable;
 pub mod skl;

@@ -13,7 +13,8 @@ use tokio::sync::mpsc;
 use bytes::Bytes;
 use std::sync::RwLock;
 use crate::storage::engine::slsm::Deleted;
-use crate::storage::engine::slsm::skl::FixedLengthSuffixComparator;
+use crate::storage::engine::slsm::skl::{FixedLengthSuffixComparator, KeyComparator};
+use std::fmt;
 
 pub struct SLSM {
     pub(crate) config: StorageConfig,
@@ -22,7 +23,7 @@ pub struct SLSM {
 }
 
 impl Display for SLSM {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "slsm")
     }
 }
@@ -59,10 +60,8 @@ impl SLSMBuilder {
 impl SLSM {
     /// start that real-start SLSM engine.
     pub fn start(&self) -> Result<()> {
-        Ok(())
-    }
-
-    pub fn stop(&self) -> Result<()> {
+        self.memtable.read()?.start()?;
+        self.table.read()?.start()?;
         Ok(())
     }
 
@@ -103,9 +102,11 @@ impl Storage for SLSM {
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let res = self.memtable.read()?.get(key)?;
-        if res.is_some() {
-            return Ok(res);
+        match self.memtable.read()?.get(key)? {
+            None => {}
+            Some(v) => {
+                return Ok(Some(v.to_vec()));
+            }
         }
         self.table.read()?.get(key)
     }

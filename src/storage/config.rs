@@ -8,6 +8,7 @@ pub struct StorageConfig {
     pub sync_write: bool,
 
     pub mem_table_siz: u64,
+    pub max_mem_table_siz: u64,
     pub base_table_siz: u64,
     pub base_level_siz: u64,
     pub level_siz_multiplier: usize,
@@ -34,7 +35,8 @@ impl Default for StorageConfig {
             value_dir: PathBuf::new(),
             in_memory: false,
             sync_write: false,
-            mem_table_siz: 64 << 20,
+            mem_table_siz: 2 << 20,
+            max_mem_table_siz: 64 << 20,
             base_table_siz: 2 << 20,
             base_level_siz: 10 << 20,
             level_siz_multiplier: 2,

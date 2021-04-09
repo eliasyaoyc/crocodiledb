@@ -4,34 +4,42 @@ use crate::storage::{Range, Scan, Storage};
 use crate::storage::config::StorageConfig;
 use crate::storage::engine::slsm::fence::FencePointer;
 use bytes::Bytes;
-use priority_queue::PriorityQueue;
+use crate::storage::engine::slsm::bloom::Bloom;
 
 /// MemTable represent the active table so that all modified operations
 /// will happened on.
-pub struct MemTable<T: KeyComparator> {
+pub struct MemTable {
     config: StorageConfig,
-    runs: PriorityQueue<u64, Run<T>>,
+    // runs: PriorityQueue<u64, Run<T>>,
+    used_memory: u64,
 }
 
-struct Run<T> {
+struct Run<C: KeyComparator> {
     id: u64,
+    active: bool,
     siz: usize,
     checksum: Bytes,
-    fence_pointer: FencePointer,
-    // true if there's bloom filter in run.
-    has_bloom_filter: bool,
-    skl: SkipList<T>,
+    minimum: Bytes,
+    maximum: Bytes,
+    // true if there's bloom filter in run
+    skl: SkipList<C>,
 }
 
-impl MemTable<T> {
-    pub(crate) fn create(config: &StorageConfig) -> Result<MemTable<T>> {
+impl MemTable {
+    pub(crate) fn start(&self) -> Result<()> {
+        Ok(())
+    }
+
+    pub(crate) fn create(config: &StorageConfig) -> Result<MemTable> {
         let comp = FixedLengthSuffixComparator::new(8);
         Ok(Self {
             config: config.clone(),
             // skl: SkipList::with_capacity(comp, 1 << 20),
-            runs: PriorityQueue::new(),
+            // runs: PriorityQueue::new(),
+            used_memory: 0,
         })
     }
+
 
     /// create_run that create a active run to storage data.
     pub(crate) fn create_run(&self) -> Result<()> {
@@ -49,11 +57,16 @@ impl MemTable<T> {
 
     /// is_full that determine whether the whole memtable is full.
     pub(crate) fn is_full(&self) -> bool {
-        true
+        self.used_memory >= self.config.max_mem_table_siz
     }
 
+    /// can_create_run true if `mem_table_siz` + the current used space
+    /// less than and equal to `max_men_table_siz`, otherwise false.
     pub(crate) fn can_create_run(&self) -> bool {
-        true
+        if self.used_memory + self.config.mem_table_siz <= self.config.max_mem_table_siz {
+            return true;
+        }
+        false
     }
 
     pub(crate) fn compression(&self) -> Result<()> {
@@ -61,15 +74,11 @@ impl MemTable<T> {
         Ok(())
     }
 
-    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        todo!()
+    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<&Bytes>> {
+        Ok(None)
     }
 
     pub(crate) fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
-        todo!()
-    }
-
-    pub(crate) fn delete(&mut self, key: &[u8]) -> Result<()> {
         todo!()
     }
 
@@ -79,5 +88,25 @@ impl MemTable<T> {
 
     pub(crate) fn scan(&self, range: Range) -> Scan {
         todo!()
+    }
+}
+
+
+impl<C: KeyComparator> Run<C> {
+    fn new(comparor: C) -> Self {
+        Self {
+            id: 0,
+            active: false,
+            siz: 0,
+            checksum: Default::default(),
+            minimum: Default::default(),
+            maximum: Default::default(),
+            skl: SkipList::with_capacity(comparor, 16),
+        }
+    }
+
+    #[inline]
+    fn get(&self, key: &[u8]) -> Option<&Bytes> {
+        self.skl.get(key)
     }
 }

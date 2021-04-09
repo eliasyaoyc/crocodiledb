@@ -6,5 +6,6 @@ mod log;
 pub mod mvcc;
 pub mod storage;
 mod types;
+mod util;
 
 pub use storage::*;
