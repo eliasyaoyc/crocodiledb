@@ -5,12 +5,15 @@ use crate::storage::config::StorageConfig;
 use crate::storage::engine::slsm::fence::FencePointer;
 use bytes::Bytes;
 use crate::storage::engine::slsm::bloom::Bloom;
+use crate::storage::util::priority_queue::PriorityQueue;
+use std::time::Duration;
+use std::cmp::Ordering;
 
 /// MemTable represent the active table so that all modified operations
 /// will happened on.
-pub struct MemTable {
+pub struct MemTable<C: KeyComparator> {
     config: StorageConfig,
-    // runs: PriorityQueue<u64, Run<T>>,
+    runs: PriorityQueue<usize, Run<C>>,
     used_memory: u64,
 }
 
@@ -25,17 +28,37 @@ struct Run<C: KeyComparator> {
     skl: SkipList<C>,
 }
 
-impl MemTable {
+impl<C:KeyComparator> PartialEq for Run<C> {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
+impl<C:KeyComparator> Eq for Run<C> {
+
+}
+
+impl<C: KeyComparator> PartialOrd for Run<C> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl<C: KeyComparator> Ord for Run<C> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
+}
+
+impl<C: KeyComparator> MemTable<C> {
     pub(crate) fn start(&self) -> Result<()> {
         Ok(())
     }
 
-    pub(crate) fn create(config: &StorageConfig) -> Result<MemTable> {
-        let comp = FixedLengthSuffixComparator::new(8);
+    pub(crate) fn create(config: &StorageConfig) -> Result<Self> {
         Ok(Self {
             config: config.clone(),
-            // skl: SkipList::with_capacity(comp, 1 << 20),
-            // runs: PriorityQueue::new(),
+            runs: PriorityQueue::new(),
             used_memory: 0,
         })
     }

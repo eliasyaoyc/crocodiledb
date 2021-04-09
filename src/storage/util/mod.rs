@@ -1,2 +1,2 @@
-mod priority_queue;
-mod crc32;
+pub mod priority_queue;
+pub mod crc32;

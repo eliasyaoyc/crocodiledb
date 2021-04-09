@@ -16,48 +16,19 @@ use crate::storage::engine::slsm::Deleted;
 use crate::storage::engine::slsm::skl::{FixedLengthSuffixComparator, KeyComparator};
 use std::fmt;
 
-pub struct SLSM {
+pub struct SLSM<C: KeyComparator> {
     pub(crate) config: StorageConfig,
-    pub(crate) memtable: RwLock<MemTable>,
+    pub(crate) memtable: RwLock<MemTable<C>>,
     pub(crate) table: RwLock<Table>,
 }
 
-impl Display for SLSM {
+impl<C: KeyComparator> Display for SLSM<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "slsm")
     }
 }
 
-pub struct SLSMBuilder {
-    pub config: StorageConfig,
-}
-
-impl SLSMBuilder {
-    fn default() -> Self {
-        Self {
-            config: StorageConfig::default(),
-        }
-    }
-
-    fn set_config(&mut self, config: StorageConfig) -> &Self {
-        self.config = config;
-        self
-    }
-
-    /// builder is not start a SLSM that just builtin initialization memtable and table,
-    /// so if you wan't real-start SLSM, you must manual call start fn.
-    fn build(self) -> Result<SLSM> {
-        let memtable = MemTable::create(&self.config)?;
-        let table = Table::create(&self.config)?;
-        Ok(SLSM {
-            config: self.config,
-            memtable: RwLock::new(memtable),
-            table: RwLock::new(table),
-        })
-    }
-}
-
-impl SLSM {
+impl<C: KeyComparator> SLSM<C> {
     /// start that real-start SLSM engine.
     pub fn start(&self) -> Result<()> {
         self.memtable.read()?.start()?;
@@ -69,9 +40,8 @@ impl SLSM {
     pub fn config(&self) -> &StorageConfig {
         &self.config
     }
-}
 
-impl Storage for SLSM {
+
     fn set(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
         if !self.memtable.read()?.is_run_full() {
             return self.memtable.write()?.set(key, value);

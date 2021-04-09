@@ -27,6 +27,9 @@ tokio-trace = { git = "https://github.com/hawkw/tokio-trace", rev = "7d5998e7cb3
 html-escape = "0.2.5"
 memmap = "0.7"
 crc32fast = "1.2.1"
+indexmap = "1"
+time = "0.2.26"
+
 
 
 [dependencies.tower]
