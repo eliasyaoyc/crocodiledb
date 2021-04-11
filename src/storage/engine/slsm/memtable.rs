@@ -1,13 +1,17 @@
-use crate::storage::engine::slsm::skl::{slist::SkipList, FixedLengthSuffixComparator, KeyComparator};
-use crate::storage::error::{Error, Result};
-use crate::storage::{Range, Scan, Storage};
 use crate::storage::config::StorageConfig;
-use crate::storage::engine::slsm::fence::FencePointer;
-use bytes::Bytes;
 use crate::storage::engine::slsm::bloom::Bloom;
+use crate::storage::engine::slsm::fence::FencePointer;
+use crate::storage::engine::slsm::skl::{
+    slist::SkipList, FixedLengthSuffixComparator, KeyComparator,
+};
+use crate::storage::error::{Error, Result};
 use crate::storage::util::priority_queue::PriorityQueue;
-use std::time::Duration;
+use crate::storage::{Range, Scan, Storage};
+use bytes::Bytes;
+use crossbeam_channel::{Receiver, Sender};
 use std::cmp::Ordering;
+use std::thread;
+use std::time::Duration;
 
 /// MemTable represent the active table so that all modified operations
 /// will happened on.
@@ -28,15 +32,13 @@ struct Run<C: KeyComparator> {
     skl: SkipList<C>,
 }
 
-impl<C:KeyComparator> PartialEq for Run<C> {
+impl<C: KeyComparator> PartialEq for Run<C> {
     fn eq(&self, other: &Self) -> bool {
         todo!()
     }
 }
 
-impl<C:KeyComparator> Eq for Run<C> {
-
-}
+impl<C: KeyComparator> Eq for Run<C> {}
 
 impl<C: KeyComparator> PartialOrd for Run<C> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -55,7 +57,7 @@ impl<C: KeyComparator> MemTable<C> {
         Ok(())
     }
 
-    pub(crate) fn create(config: &StorageConfig) -> Result<Self> {
+    pub(crate) fn create(config: &StorageConfig, recv: Receiver<()>) -> Result<Self> {
         Ok(Self {
             config: config.clone(),
             runs: PriorityQueue::new(),
@@ -63,11 +65,12 @@ impl<C: KeyComparator> MemTable<C> {
         })
     }
 
-
     /// create_run that create a active run to storage data.
     pub(crate) fn create_run(&self) -> Result<()> {
         if !self.can_create_run() {
-            return Err(Error::InternalErr("Create run in memory failed.".to_string()));
+            return Err(Error::InternalErr(
+                "Create run in memory failed.".to_string(),
+            ));
         }
 
         Ok(())
@@ -92,9 +95,16 @@ impl<C: KeyComparator> MemTable<C> {
         false
     }
 
-    pub(crate) fn compression(&self) -> Result<()> {
+    pub(crate) fn compression(&self, sender: Sender<()>) {
         // todo whether to sync the table to disk, or aysnc?
-        Ok(())
+        thread::Builder::new()
+            .name("manual-tale-compaction".to_owned())
+            .spawn(move || {
+                let mut done_compaction = false;
+
+                if done_compaction {}
+            })
+            .unwrap();
     }
 
     pub(crate) fn get(&self, key: &[u8]) -> Result<Option<&Bytes>> {
@@ -113,7 +123,6 @@ impl<C: KeyComparator> MemTable<C> {
         todo!()
     }
 }
-
 
 impl<C: KeyComparator> Run<C> {
     fn new(comparor: C) -> Self {

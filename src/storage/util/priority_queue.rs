@@ -1,12 +1,12 @@
-use std::vec::Vec;
+use indexmap::map::{IndexMap, MutableKeys};
 use std::borrow::Borrow;
 use std::cmp::{Eq, Ord};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
+use std::iter::*;
 use std::iter::{Extend, FromIterator, IntoIterator, Iterator};
 use std::mem::{replace, swap};
-use std::iter::*;
-use indexmap::map::{IndexMap, MutableKeys};
+use std::vec::Vec;
 
 /// A priority queue with efficient change function to change the priority of an
 /// element.
@@ -19,9 +19,9 @@ use indexmap::map::{IndexMap, MutableKeys};
 /// to be able to retrieve them quickly.
 #[derive(Clone)]
 pub struct PriorityQueue<I, P, H = RandomState>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     pub(crate) map: IndexMap<I, P, H>,
     // Stores the items and assign them an index
@@ -35,17 +35,18 @@ pub struct PriorityQueue<I, P, H = RandomState>
 
 // do not [derive(Eq)] to loosen up trait requirements for other types and impls
 impl<I, P, H> Eq for PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher,
-{}
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher,
+{
+}
 
 impl<I, P, H> Default for PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher + Default,
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher + Default,
 {
     fn default() -> Self {
         Self::with_default_hasher()
@@ -53,9 +54,9 @@ impl<I, P, H> Default for PriorityQueue<I, P, H>
 }
 
 impl<I, P> PriorityQueue<I, P>
-    where
-        P: Ord,
-        I: Hash + Eq,
+where
+    P: Ord,
+    I: Hash + Eq,
 {
     /// Creates an empty `PriorityQueue`
     pub fn new() -> Self {
@@ -69,10 +70,10 @@ impl<I, P> PriorityQueue<I, P>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
-        H: BuildHasher + Default,
+where
+    P: Ord,
+    I: Hash + Eq,
+    H: BuildHasher + Default,
 {
     /// Creates an empty `PriorityQueue` with the default hasher
     pub fn with_default_hasher() -> Self {
@@ -86,10 +87,10 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
-        H: BuildHasher,
+where
+    P: Ord,
+    I: Hash + Eq,
+    H: BuildHasher,
 {
     /// Creates an empty `PriorityQueue` with the specified hasher
     pub fn with_hasher(hash_builder: H) -> Self {
@@ -120,9 +121,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
+where
+    P: Ord,
+    I: Hash + Eq,
 {
     /// Return an iterator in arbitrary order over the
     /// (item, priority) elements in the queue.
@@ -180,10 +181,10 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
-        H: BuildHasher,
+where
+    P: Ord,
+    I: Hash + Eq,
+    H: BuildHasher,
 {
     // reserve_exact -> IndexMap does not implement reserve_exact
 
@@ -204,9 +205,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
+where
+    P: Ord,
+    I: Hash + Eq,
 {
     /// Shrinks the capacity of the internal data structures
     /// that support this operation as much as possible.
@@ -232,10 +233,10 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
-        H: BuildHasher,
+where
+    P: Ord,
+    I: Hash + Eq,
+    H: BuildHasher,
 {
     /// Insert the item-priority pair into the queue.
     ///
@@ -276,11 +277,11 @@ impl<I, P, H> PriorityQueue<I, P, H>
         unsafe {
             while (i > 0)
                 && (self
-                .map
-                .get_index(*self.heap.get_unchecked(parent(i)))
-                .unwrap()
-                .1
-                < priority)
+                    .map
+                    .get_index(*self.heap.get_unchecked(parent(i)))
+                    .unwrap()
+                    .1
+                    < priority)
             {
                 *self.heap.get_unchecked_mut(i) = *self.heap.get_unchecked(parent(i));
                 *self.qp.get_unchecked_mut(*self.heap.get_unchecked(i)) = i;
@@ -348,9 +349,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
     /// The item is found in **O(1)** thanks to the hash table.
     /// The operation is performed in **O(log(N))** time.
     pub fn change_priority<Q: ?Sized>(&mut self, item: &Q, mut new_priority: P) -> Option<P>
-        where
-            I: Borrow<Q>,
-            Q: Eq + Hash,
+    where
+        I: Borrow<Q>,
+        Q: Eq + Hash,
     {
         let pos;
         let r = if let Some((index, _, p)) = self.map.get_full_mut(item) {
@@ -370,10 +371,10 @@ impl<I, P, H> PriorityQueue<I, P, H>
     /// The item is found in **O(1)** thanks to the hash table.
     /// The operation is performed in **O(log(N))** time (worst case).
     pub fn change_priority_by<Q: ?Sized, F>(&mut self, item: &Q, priority_setter: F)
-        where
-            I: Borrow<Q>,
-            Q: Eq + Hash,
-            F: FnOnce(&mut P),
+    where
+        I: Borrow<Q>,
+        Q: Eq + Hash,
+        F: FnOnce(&mut P),
     {
         let mut pos = 0;
         let mut found = false;
@@ -389,9 +390,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
 
     /// Get the priority of an item, or `None`, if the item is not in the queue
     pub fn get_priority<Q: ?Sized>(&self, item: &Q) -> Option<&P>
-        where
-            I: Borrow<Q>,
-            Q: Eq + Hash,
+    where
+        I: Borrow<Q>,
+        Q: Eq + Hash,
     {
         self.map.get(item)
     }
@@ -399,9 +400,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
     /// Get the couple (item, priority) of an arbitrary element, as reference
     /// or `None` if the item is not in the queue.
     pub fn get<Q: ?Sized>(&self, item: &Q) -> Option<(&I, &P)>
-        where
-            I: Borrow<Q>,
-            Q: Eq + Hash,
+    where
+        I: Borrow<Q>,
+        Q: Eq + Hash,
     {
         self.map.get_full(item).map(|(_, k, v)| (k, v))
     }
@@ -416,9 +417,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
     /// To modify the priority use `push`, `change_priority` or
     /// `change_priority_by`.
     pub fn get_mut<Q: ?Sized>(&mut self, item: &Q) -> Option<(&mut I, &P)>
-        where
-            I: Borrow<Q>,
-            Q: Eq + Hash,
+    where
+        I: Borrow<Q>,
+        Q: Eq + Hash,
     {
         self.map.get_full_mut2(item).map(|(_, k, v)| (k, &*v))
     }
@@ -429,9 +430,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
     ///
     /// The operation is performed in **O(log(N))** time (worst case).
     pub fn remove<Q: ?Sized>(&mut self, item: &Q) -> Option<(I, P)>
-        where
-            I: Borrow<Q>,
-            Q: Eq + Hash,
+    where
+        I: Borrow<Q>,
+        Q: Eq + Hash,
     {
         let element = self.map.swap_remove_full(item);
         if let Some((i, _, _)) = element {
@@ -472,9 +473,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
+where
+    P: Ord,
+    I: Hash + Eq,
 {
     /// Implements a HeapSort
     pub fn into_sorted_vec(mut self) -> Vec<I> {
@@ -497,10 +498,10 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
-        H: BuildHasher,
+where
+    P: Ord,
+    I: Hash + Eq,
+    H: BuildHasher,
 {
     /// Drops all items from the priority queue
     pub fn clear(&mut self) {
@@ -543,9 +544,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> PriorityQueue<I, P, H>
-    where
-        P: Ord,
-        I: Hash + Eq,
+where
+    P: Ord,
+    I: Hash + Eq,
 {
     /// Generates a new iterator from self that
     /// will extract the elements from the one with the highest priority
@@ -599,9 +600,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
         let (mut l, mut r) = (left(i), right(i));
         let mut largest = if l < self.size
             && unsafe {
-            self.map.get_index(*self.heap.get_unchecked(l)).unwrap().1
-                > self.map.get_index(*self.heap.get_unchecked(i)).unwrap().1
-        } {
+                self.map.get_index(*self.heap.get_unchecked(l)).unwrap().1
+                    > self.map.get_index(*self.heap.get_unchecked(i)).unwrap().1
+            } {
             l
         } else {
             i
@@ -609,13 +610,13 @@ impl<I, P, H> PriorityQueue<I, P, H>
 
         if r < self.size
             && unsafe {
-            self.map.get_index(*self.heap.get_unchecked(r)).unwrap().1
-                > self
-                .map
-                .get_index(*self.heap.get_unchecked(largest))
-                .unwrap()
-                .1
-        }
+                self.map.get_index(*self.heap.get_unchecked(r)).unwrap().1
+                    > self
+                        .map
+                        .get_index(*self.heap.get_unchecked(largest))
+                        .unwrap()
+                        .1
+            }
         {
             largest = r;
         }
@@ -628,9 +629,9 @@ impl<I, P, H> PriorityQueue<I, P, H>
             r = right(i);
             if l < self.size
                 && unsafe {
-                self.map.get_index(*self.heap.get_unchecked(l)).unwrap().1
-                    > self.map.get_index(*self.heap.get_unchecked(i)).unwrap().1
-            }
+                    self.map.get_index(*self.heap.get_unchecked(l)).unwrap().1
+                        > self.map.get_index(*self.heap.get_unchecked(i)).unwrap().1
+                }
             {
                 largest = l;
             } else {
@@ -638,13 +639,13 @@ impl<I, P, H> PriorityQueue<I, P, H>
             }
             if r < self.size
                 && unsafe {
-                self.map.get_index(*self.heap.get_unchecked(r)).unwrap().1
-                    > self
-                    .map
-                    .get_index(*self.heap.get_unchecked(largest))
-                    .unwrap()
-                    .1
-            }
+                    self.map.get_index(*self.heap.get_unchecked(r)).unwrap().1
+                        > self
+                            .map
+                            .get_index(*self.heap.get_unchecked(largest))
+                            .unwrap()
+                            .1
+                }
             {
                 largest = r;
             }
@@ -661,11 +662,11 @@ impl<I, P, H> PriorityQueue<I, P, H>
             let tmp = *self.heap.get_unchecked(pos);
             while (pos > 0)
                 && (self
-                .map
-                .get_index(*self.heap.get_unchecked(parent(pos)))
-                .unwrap()
-                .1
-                < self.map.get_index(tmp).unwrap().1)
+                    .map
+                    .get_index(*self.heap.get_unchecked(parent(pos)))
+                    .unwrap()
+                    .1
+                    < self.map.get_index(tmp).unwrap().1)
             {
                 *self.heap.get_unchecked_mut(pos) = *self.heap.get_unchecked(parent(pos));
                 *self.qp.get_unchecked_mut(*self.heap.get_unchecked(pos)) = pos;
@@ -694,10 +695,10 @@ impl<I, P, H> PriorityQueue<I, P, H>
 //FIXME: fails when the vector contains repeated items
 // FIXED: repeated items ignored
 impl<I, P, H> From<Vec<(I, P)>> for PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher + Default,
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher + Default,
 {
     fn from(vec: Vec<(I, P)>) -> Self {
         let mut pq = Self::with_capacity_and_hasher(vec.len(), <_>::default());
@@ -720,14 +721,14 @@ impl<I, P, H> From<Vec<(I, P)>> for PriorityQueue<I, P, H>
 // FIXED: the item inside the pq is updated
 // so there are two functions with different behaviours.
 impl<I, P, H> FromIterator<(I, P)> for PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher + Default,
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher + Default,
 {
     fn from_iter<IT>(iter: IT) -> Self
-        where
-            IT: IntoIterator<Item=(I, P)>,
+    where
+        IT: IntoIterator<Item = (I, P)>,
     {
         let iter = iter.into_iter();
         let (min, max) = iter.size_hint();
@@ -756,10 +757,10 @@ impl<I, P, H> FromIterator<(I, P)> for PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> IntoIterator for PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher,
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher,
 {
     type Item = (I, P);
     type IntoIter = IntoIter<I, P>;
@@ -771,10 +772,10 @@ impl<I, P, H> IntoIterator for PriorityQueue<I, P, H>
 }
 
 impl<'a, I, P, H> IntoIterator for &'a PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher,
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher,
 {
     type Item = (&'a I, &'a P);
     type IntoIter = Iter<'a, I, P>;
@@ -786,9 +787,9 @@ impl<'a, I, P, H> IntoIterator for &'a PriorityQueue<I, P, H>
 }
 
 impl<'a, I, P, H> IntoIterator for &'a mut PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     type Item = (&'a mut I, &'a mut P);
     type IntoIter = IterMut<'a, I, P, H>;
@@ -798,12 +799,12 @@ impl<'a, I, P, H> IntoIterator for &'a mut PriorityQueue<I, P, H>
 }
 
 impl<I, P, H> Extend<(I, P)> for PriorityQueue<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
-        H: BuildHasher,
+where
+    I: Hash + Eq,
+    P: Ord,
+    H: BuildHasher,
 {
-    fn extend<T: IntoIterator<Item=(I, P)>>(&mut self, iter: T) {
+    fn extend<T: IntoIterator<Item = (I, P)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         let (min, max) = iter.size_hint();
         let mut rebuild = false;
@@ -839,9 +840,9 @@ impl<I, P, H> Extend<(I, P)> for PriorityQueue<I, P, H>
 use std::fmt;
 
 impl<I, P, H> fmt::Debug for PriorityQueue<I, P, H>
-    where
-        I: fmt::Debug + Hash + Eq,
-        P: fmt::Debug + Ord,
+where
+    I: fmt::Debug + Hash + Eq,
+    P: fmt::Debug + Ord,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_map()
@@ -853,14 +854,14 @@ impl<I, P, H> fmt::Debug for PriorityQueue<I, P, H>
 use std::cmp::PartialEq;
 
 impl<I, P1, H1, P2, H2> PartialEq<PriorityQueue<I, P2, H2>> for PriorityQueue<I, P1, H1>
-    where
-        I: Hash + Eq,
-        P1: Ord,
-        P1: PartialEq<P2>,
-        Option<P1>: PartialEq<Option<P2>>,
-        P2: Ord,
-        H1: BuildHasher,
-        H2: BuildHasher,
+where
+    I: Hash + Eq,
+    P1: Ord,
+    P1: PartialEq<P2>,
+    Option<P1>: PartialEq<Option<P2>>,
+    P2: Ord,
+    H1: BuildHasher,
+    H2: BuildHasher,
 {
     fn eq(&self, other: &PriorityQueue<I, P2, H2>) -> bool {
         self.map == other.map
@@ -903,17 +904,17 @@ fn better_to_rebuild(len1: usize, len2: usize) -> bool {
 }
 
 pub struct Iter<'a, I: 'a, P: 'a>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     pub(crate) iter: ::indexmap::map::Iter<'a, I, P>,
 }
 
 impl<'a, I: 'a, P: 'a> Iterator for Iter<'a, I, P>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     type Item = (&'a I, &'a P);
     fn next(&mut self) -> Option<(&'a I, &'a P)> {
@@ -922,18 +923,18 @@ impl<'a, I: 'a, P: 'a> Iterator for Iter<'a, I, P>
 }
 
 pub struct IterMut<'a, I: 'a, P: 'a, H: 'a = RandomState>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     pq: &'a mut PriorityQueue<I, P, H>,
     pos: usize,
 }
 
 impl<'a, I: 'a, P: 'a, H: 'a> IterMut<'a, I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     pub(crate) fn new(pq: &'a mut PriorityQueue<I, P, H>) -> Self {
         IterMut { pq, pos: 0 }
@@ -941,9 +942,9 @@ impl<'a, I: 'a, P: 'a, H: 'a> IterMut<'a, I, P, H>
 }
 
 impl<'a, 'b: 'a, I: 'a, P: 'a, H: 'a> Iterator for IterMut<'a, I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     type Item = (&'a mut I, &'a mut P);
     fn next(&mut self) -> Option<Self::Item> {
@@ -959,9 +960,9 @@ impl<'a, 'b: 'a, I: 'a, P: 'a, H: 'a> Iterator for IterMut<'a, I, P, H>
 }
 
 impl<'a, I: 'a, P: 'a, H: 'a> Drop for IterMut<'a, I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     fn drop(&mut self) {
         self.pq.heap_build();
@@ -969,17 +970,17 @@ impl<'a, I: 'a, P: 'a, H: 'a> Drop for IterMut<'a, I, P, H>
 }
 
 pub struct IntoIter<I, P>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     pub(crate) iter: ::indexmap::map::IntoIter<I, P>,
 }
 
 impl<I, P> Iterator for IntoIter<I, P>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     type Item = (I, P);
     fn next(&mut self) -> Option<(I, P)> {
@@ -988,17 +989,17 @@ impl<I, P> Iterator for IntoIter<I, P>
 }
 
 pub struct IntoSortedIter<I, P, H = RandomState>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     pub(crate) pq: PriorityQueue<I, P, H>,
 }
 
 impl<I, P, H> Iterator for IntoSortedIter<I, P, H>
-    where
-        I: Hash + Eq,
-        P: Ord,
+where
+    I: Hash + Eq,
+    P: Ord,
 {
     type Item = (I, P);
     fn next(&mut self) -> Option<(I, P)> {

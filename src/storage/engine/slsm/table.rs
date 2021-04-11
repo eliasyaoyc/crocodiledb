@@ -5,11 +5,13 @@ use crate::storage::{
     Range, Scan,
 };
 use bytes::{Buf, Bytes};
+use crossbeam_channel::Receiver;
 use futures::future::err;
 use memmap::{Mmap, MmapOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread;
 
 /// MmapFile stores SST data. `File` refers to a file on disk.
 /// and `Memory` refers to data in memory.
@@ -122,14 +124,23 @@ impl Table {
         Ok(())
     }
 
-    pub fn create(config: &StorageConfig) -> Result<Self> {
+    pub fn create(config: &StorageConfig, recv: Receiver<()>) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(TableInner::create(config.dir.as_path(), Bytes::new(), config)?)
+            inner: Arc::new(TableInner::create(
+                config.dir.as_path(),
+                Bytes::new(),
+                config,
+            )?),
         })
     }
 
     /// Create an SST from bytes data generated with table builder.
-    pub fn create_with_argus(&self, path: &Path, data: Bytes, conf: &StorageConfig) -> Result<Self> {
+    pub fn create_with_argus(
+        &self,
+        path: &Path,
+        data: Bytes,
+        conf: &StorageConfig,
+    ) -> Result<Self> {
         Ok(Self {
             inner: Arc::new(TableInner::create(path, data, conf)?),
         })
@@ -153,6 +164,17 @@ impl Table {
 
     pub(crate) fn scan(&self, range: Range) -> Scan {
         todo!()
+    }
+
+    pub(crate) fn compaction(&self) {
+        thread::Builder::new()
+            .name("sstable-compaction".to_owned())
+            .spawn(move || {
+                let mut done_compaction = false;
+
+                if done_compaction {}
+            })
+            .unwrap();
     }
 }
 
