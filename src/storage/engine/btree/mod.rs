@@ -1,16 +1,23 @@
-use std::fmt::{Display, Formatter};
 use crate::storage::{Storage, Scan, Range};
 use crate::storage::error::{Error, Result};
+use std::fmt::{Display, Formatter};
+pub use tracing::{debug, error, info, warn};
 
-pub struct Wisc {}
+pub enum NodeType {
+    RootNode,
+    InternalNode,
+    LeafNode,
+}
 
-impl Display for Wisc {
+pub struct BTree {}
+
+impl Display for BTree {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "wisc")
+        write!(f, "btree")
     }
 }
 
-impl Storage for Wisc {
+impl Storage for BTree {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         todo!()
     }
@@ -29,5 +36,26 @@ impl Storage for Wisc {
 
     fn scan(&self, range: Range) -> Scan {
         todo!()
+    }
+}
+
+impl BTree {
+    fn merge(&self) -> Result<()> {
+        todo!()
+    }
+    fn split(&self) -> Result<()> {
+        todo!()
+    }
+
+    fn rebalance(&self) -> Result<()> {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    #[test]
+    fn it_work(){
+        println!("{}",123);
     }
 }

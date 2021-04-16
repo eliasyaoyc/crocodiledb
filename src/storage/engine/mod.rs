@@ -7,3 +7,4 @@
 pub mod memory;
 pub mod slsm;
 pub mod wisclsm;
+pub mod btree;
