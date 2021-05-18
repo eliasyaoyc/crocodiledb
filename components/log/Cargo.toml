@@ -1,0 +1,19 @@
+[package]
+name = "crocodiledb-components-log"
+version = "0.1.0"
+authors = ["Elias.Yao <siran0611@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+slog = { version = "2.3", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = "2.3"
+slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", rev = "d592f88e4dbba5eb439998463054f1a44fbf17b9" }
+slog-json = "2.3"
+slog-term = "2.4"
+chrono = "0.4.11"
+grpcio = "0.8.0"
