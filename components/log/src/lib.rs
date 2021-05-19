@@ -340,7 +340,17 @@ impl<D> Drain for SlowLogFilter<D>
     type Err = slog::Never;
 
     fn log(&self, record: &Record<'_>, values: &OwnedKVList) -> Result<Self::Ok, Self::Err> {
-        Ok(())
+        if record.tag() == "slow_log" {
+            let mut s = SlowCostSerializer { cost: None };
+            let kv = record.kv();
+            let _ = kv.serialize(record, &mut s);
+            if let Some(cost) = s.cost {
+                if cost <= self.threshold {
+                    return Ok(());
+                }
+            }
+        }
+        self.inner.log(record, values)
     }
 }
 
