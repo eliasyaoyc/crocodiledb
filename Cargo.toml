@@ -7,17 +7,13 @@ edition = "2018"
 [workspace]
 members = [
     "crocodiledb",
-    "components/app",
-    "components/admin",
     "components/error",
+    "components/kv",
     "components/metrics",
     "components/raft",
-    "components/signal",
     "components/sql",
     "components/storage",
-    "components/tracing",
     "components/utils",
-    "components/transaction",
     "components/log",
 ]
 

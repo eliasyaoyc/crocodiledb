@@ -1,6 +1,4 @@
 use tokio::sync::mpsc;
-// use crocodile::signal::shutdown;
-use tracing::{debug, error, info, warn};
 
 fn main() {
     // let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel();
