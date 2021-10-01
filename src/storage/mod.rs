@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::storage::lsm_storage::LSM;
 
 mod lsm_storage;
+mod bloom_filter;
 
 pub trait Storage {
     fn open(&self) {}
