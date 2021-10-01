@@ -1,23 +1,18 @@
 [package]
-name = "crocodile"
+name = "crocodiledb"
 version = "0.1.0"
 authors = ["Elias.Yao <siran0611@gmail.com>"]
 edition = "2018"
 
-[workspace]
-members = [
-    "crocodiledb",
-    "components/error",
-    "components/kv",
-    "components/metrics",
-    "components/raft",
-    "components/sql",
-    "components/storage",
-    "components/utils",
-    "components/log",
-]
+[[bin]]
+name = "crocodile"
+path = "bin/corcodiledb.rs"
 
-[profile.dev]
-debug = false
-[profile.test]
-debug = false
+[dependencies]
+thiserror = "1.0.29"
+tokio = { version = "1", features = ["full"] }
+tracing-error = "0.1.2"
+tracing-subscriber = "0.2.24"
+
+
+[dev-dependencies]
