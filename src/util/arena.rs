@@ -56,6 +56,7 @@ impl Arena {
         let size = size + align_mark;
         let offset = self.core.len.fetch_add(size, Ordering::SeqCst);
         // Calculate the bit to fill.  19 & -8 = 24;
+        // (offset + align_mark) / align * align
         let ptr_offset = (offset + align_mark) & !align_mark;
         assert!(offset as usize + size <= self.core.cap);
         ptr_offset as u32
@@ -108,6 +109,14 @@ mod arena_test {
 
     #[test]
     fn alloc_align() {
+        // 0001 00111  30
+
+        // 0000 1000   8
+        // 1111 0111   8 的补码
+        // 1111 1000   8 的反码
+
+        println!("{}", (23 + 7) & -8);
+        println!("{}", 30 / 8 * 8);
         let align = std::mem::align_of::<Node>();
         let v = std::mem::size_of::<Node>();
         let arena = Arena::with_capacity(1 << 20);
