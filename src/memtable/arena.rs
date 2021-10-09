@@ -46,6 +46,7 @@ impl Arena {
         offset as u32
     }
 
+    /// Allocates `size` bytes aligned with `align`
     pub fn alloc_align(&self, align: usize, size: usize) -> u32 {
         let mut align = align;
         if align >= 8 {
@@ -62,6 +63,7 @@ impl Arena {
         ptr_offset as u32
     }
 
+    /// Returns a raw pointer with given arena offset
     pub unsafe fn get_ptr<N>(&self, offset: u32) -> *mut N {
         if offset == 0 {
             return std::ptr::null_mut();
@@ -70,7 +72,7 @@ impl Arena {
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn memory_used(&self) -> usize {
         self.core.len.load(Ordering::SeqCst)
     }
 
@@ -88,7 +90,7 @@ impl Arena {
 #[cfg(test)]
 mod arena_test {
     use std::sync::atomic::{AtomicU32, Ordering};
-    use crate::util::arena::Arena;
+    use crate::memtable::arena::Arena;
 
     struct Node {
         v: u64,
@@ -101,10 +103,10 @@ mod arena_test {
         let arena = Arena::with_capacity(1 << 20);
         let s = arena.alloc(v);
         assert_eq!(s, 1);
-        assert_eq!(arena.len(), 1 + 16);
+        assert_eq!(arena.memory_used(), 1 + 16);
         let s = arena.alloc(v);
         assert_eq!(s, 1 + 16);
-        assert_eq!(arena.len(), 1 + 16 + 16);
+        assert_eq!(arena.memory_used(), 1 + 16 + 16);
     }
 
     #[test]
@@ -122,9 +124,9 @@ mod arena_test {
         let arena = Arena::with_capacity(1 << 20);
         let s = arena.alloc_align(align, v);
         assert_eq!(s, 8);
-        assert_eq!(arena.len(), 1 + 7 + 16);
+        assert_eq!(arena.memory_used(), 1 + 7 + 16);
         let s = arena.alloc_align(align, v);
         assert_eq!(s, 24);
-        assert_eq!(arena.len(), 1 + 7 + 16 + 7 + 16);
+        assert_eq!(arena.memory_used(), 1 + 7 + 16 + 7 + 16);
     }
 }

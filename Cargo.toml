@@ -9,6 +9,8 @@ name = "crocodile"
 path = "bin/corcodiledb.rs"
 
 [dependencies]
+bytes = "1.1.0"
+rand = "0.8.4"
 thiserror = "1.0.29"
 tokio = { version = "1", features = ["full"] }
 tracing-error = "0.1.2"
@@ -16,3 +18,9 @@ tracing-subscriber = "0.2.24"
 
 
 [dev-dependencies]
+criterion = "0.3.0"
+
+[[bench]]
+harness = false
+name = "skiplist"
+path = "benches/skiplist.rs"
