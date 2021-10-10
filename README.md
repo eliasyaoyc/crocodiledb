@@ -11,13 +11,6 @@ the components including:
 ## CrocodileDB Architecture
 in making....
 
-### Storage Layer
-
-### SQL Layer
-
-### Raft Consensus Layer 
-
-
 ## Usage
 First, should ensure you have Rust compiler.
 
