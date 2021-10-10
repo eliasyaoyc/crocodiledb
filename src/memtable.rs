@@ -1,3 +1,4 @@
+use crate::db::format::{LookupKey, ValueType};
 use crate::IResult;
 use crate::memtable::key::KeyComparator;
 use crate::memtable::skiplist::Skiplist;
@@ -16,6 +17,23 @@ impl<C: KeyComparator> MemTable<C> {
         Self {
             table: Skiplist::with_capacity(cmp, capacity),
         }
+    }
+
+    /// Insert record to memtable.
+    ///
+    /// ```test
+    /// Format of an entry is concatenation of:
+    ///
+    /// internal_key : user_key + sequence number + type
+    /// key_size     : varint32 of internal_key.size()
+    /// key bytes    : &[internal_key.size()]
+    /// value_size   : varint32 of value.size()
+    /// value bytes  : &[value.size()]
+    /// ```
+    pub fn add(&mut self, sequence_number: u64, typ: ValueType, key: &[u8], value: &[u8]) {}
+
+    pub fn get(&self, key: LookupKey) -> Option<IResult<Vec<u8>>> {
+        None
     }
 }
 

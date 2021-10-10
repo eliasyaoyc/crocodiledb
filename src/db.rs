@@ -1,3 +1,5 @@
+pub mod format;
+
 use crate::opt::Options;
 
 pub struct KV {
