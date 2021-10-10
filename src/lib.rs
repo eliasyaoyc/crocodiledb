@@ -6,6 +6,7 @@ pub mod opt;
 mod cache;
 mod filter;
 mod memtable;
+pub mod iterator;
 
-pub use error::{Error, Result};
+pub use error::{Error, IResult};
 pub use memtable::skiplist;
