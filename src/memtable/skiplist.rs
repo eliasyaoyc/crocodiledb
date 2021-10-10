@@ -477,9 +477,8 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
     use super::*;
-    use crate::memtable::FixedLengthSuffixComparator;
-    use crate::memtable::skiplist::Skiplist;
     use std::thread;
+    use crate::memtable::key::FixedLengthSuffixComparator;
 
     fn new_value(v: usize) -> Bytes {
         Bytes::from(format!("{:05}", v))
