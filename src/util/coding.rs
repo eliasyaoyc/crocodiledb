@@ -43,7 +43,7 @@ pub fn encode_fixed_64(dst: &mut [u8], value: u64) {
     }
 }
 
-pub fn decode_fixed_32(source: &mut [u8]) -> u32 {
+pub fn decode_fixed_32(source: &[u8]) -> u32 {
     let mut data: u32 = 0;
     if source.len() >= 4 {
         unsafe {
@@ -57,7 +57,7 @@ pub fn decode_fixed_32(source: &mut [u8]) -> u32 {
     data.to_le()
 }
 
-pub fn decode_fixed_64(source: &mut [u8]) -> u64 {
+pub fn decode_fixed_64(source: &[u8]) -> u64 {
     let mut data: u64 = 0;
     if source.len() >= 8 {
         unsafe {

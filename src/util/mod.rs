@@ -1,3 +1,3 @@
 mod crc32;
 mod varint;
-mod coding;
+pub mod coding;

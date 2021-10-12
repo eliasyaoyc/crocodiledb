@@ -72,7 +72,7 @@ impl Arena {
     }
 
     #[inline]
-    pub fn memory_used(&self) -> usize {
+    pub fn memory_usage(&self) -> usize {
         self.core.len.load(Ordering::SeqCst)
     }
 
@@ -103,10 +103,10 @@ mod arena_test {
         let arena = Arena::with_capacity(1 << 20);
         let s = arena.alloc(v);
         assert_eq!(s, 1);
-        assert_eq!(arena.memory_used(), 1 + 16);
+        assert_eq!(arena.memory_usage(), 1 + 16);
         let s = arena.alloc(v);
         assert_eq!(s, 1 + 16);
-        assert_eq!(arena.memory_used(), 1 + 16 + 16);
+        assert_eq!(arena.memory_usage(), 1 + 16 + 16);
     }
 
     #[test]
@@ -124,9 +124,9 @@ mod arena_test {
         let arena = Arena::with_capacity(1 << 20);
         let s = arena.alloc_align(align, v);
         assert_eq!(s, 8);
-        assert_eq!(arena.memory_used(), 1 + 7 + 16);
+        assert_eq!(arena.memory_usage(), 1 + 7 + 16);
         let s = arena.alloc_align(align, v);
         assert_eq!(s, 24);
-        assert_eq!(arena.memory_used(), 1 + 7 + 16 + 7 + 16);
+        assert_eq!(arena.memory_usage(), 1 + 7 + 16 + 7 + 16);
     }
 }

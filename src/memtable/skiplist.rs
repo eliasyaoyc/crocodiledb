@@ -52,7 +52,7 @@ struct SkiplistCore {
 #[derive(Clone)]
 pub struct Skiplist<C> {
     core: Arc<SkiplistCore>,
-    c: C,
+    pub c: C,
 }
 
 impl<C> Skiplist<C> {
@@ -205,8 +205,8 @@ impl<C: KeyComparator> Skiplist<C> {
 
     /// Returns memory usage.
     #[inline]
-    pub fn mem_size(&self) -> usize {
-        self.core.arena.memory_used()
+    pub fn memory_usage(&self) -> usize {
+        self.core.arena.memory_usage()
     }
 
     /// Returns true if skiplist is empty, otherwise return false.
