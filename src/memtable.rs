@@ -3,7 +3,8 @@ use crate::error::Error;
 use crate::IResult;
 use crate::memtable::key::KeyComparator;
 use crate::memtable::skiplist::Skiplist;
-use crate::iterator::Iterator;
+use crate::iterator::Iter;
+use crate::skiplist::SkiplistIterator;
 use crate::util::coding::{decode_fixed_64, put_fixed_64, VarintU32};
 
 mod arena;
@@ -34,15 +35,17 @@ impl<C: KeyComparator> MemTable<C> {
     /// value_size   : varint32 of value.size()
     /// value bytes  : &[value.size()]
     /// ```
+    /// TODO remove value, now will insert the empty arr to skiplist and it will cost 24bits.
     pub fn add(&mut self, sequence_number: u64, value_type: ValueType, key: &[u8], value: &[u8]) {
         let key_size = key.len();
-        let value_size = value.len();
         let internal_key_size = key_size + 8;
         let mut buf: Vec<u8> = vec![];
         VarintU32::put_varint(&mut buf, internal_key_size as u32);
         buf.extend_from_slice(key);
         put_fixed_64(&mut buf, (sequence_number << 8) | value_type as u64);
+        // notice `put_varint_prefixed_slice` will add value size first then add data.
         VarintU32::put_varint_prefixed_slice(&mut buf, value);
+        dbg!(buf.clone());
         self.table.put(buf, vec![]);
     }
 
@@ -51,7 +54,7 @@ impl<C: KeyComparator> MemTable<C> {
     /// in status and return true, otherwise return `None`.
     pub fn get(&self, key: &LookupKey) -> Option<IResult<Vec<u8>>> {
         let mem_key = key.memtable_key();
-        let mut iter = self.table.iter();
+        let mut iter = SkiplistIterator::new(self.table.clone());
         iter.seek(mem_key);
         if iter.valid() {
             let mut k = iter.key().to_vec();
@@ -92,41 +95,74 @@ fn extract_varint32_encoded_slice<'a>(src: &mut &'a [u8]) -> &'a [u8] {
     VarintU32::get_varint_prefixed_slice(src).unwrap_or(src)
 }
 
+pub struct MemTableIterator<C: KeyComparator> {
+    iter: SkiplistIterator<C>,
+}
 
-impl<C: KeyComparator> Iterator for MemTable<C> {
+impl<C: KeyComparator> MemTableIterator<C> {
+    pub fn new(iter: SkiplistIterator<C>) -> Self {
+        Self { iter }
+    }
+}
+
+impl<C: KeyComparator> Iter for MemTableIterator<C> {
     fn valid(&self) -> bool {
-        todo!()
+        self.iter.valid()
     }
 
     fn seek_to_first(&mut self) {
-        todo!()
+        self.iter.seek_to_first()
     }
 
     fn seek_to_last(&mut self) {
-        todo!()
+        self.iter.seek_to_last()
     }
 
     fn seek(&mut self, target: &[u8]) {
-        todo!()
+        self.iter.seek(&target)
     }
 
     fn next(&mut self) {
-        todo!()
+        self.iter.next()
+    }
+
+    fn seek_for_prev(&mut self, target: &[u8]) {
+        self.iter.seek_for_prev(&target)
     }
 
     fn prev(&mut self) {
-        todo!()
+        self.iter.prev()
     }
 
     fn key(&self) -> &[u8] {
-        todo!()
+        let mut key = self.iter.key();
+        extract_varint32_encoded_slice(&mut key)
     }
 
     fn value(&self) -> &[u8] {
-        todo!()
+        let mut value = self.iter.value();
+        extract_varint32_encoded_slice(&mut value);
+        extract_varint32_encoded_slice(&mut value)
     }
 
     fn status(&mut self) -> IResult<()> {
-        todo!()
+        self.iter.status()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::format::{LookupKey, ValueType};
+    use crate::memtable::key::FixedLengthSuffixComparator;
+    use crate::memtable::MemTable;
+
+    #[test]
+    fn test_add_and_get() {
+        let cmp = FixedLengthSuffixComparator::new(3);
+        let mut mem = MemTable::with_capacity(cmp, 1 << 20);
+        mem.add(1, ValueType::KTypeValue, b"foo", b"val1");
+
+        let v = mem.get(&LookupKey::new(b"foo", 1));
+        assert_eq!(b"val1", v.unwrap().unwrap().as_slice());
     }
 }

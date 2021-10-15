@@ -2,7 +2,9 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 use bytes::Bytes;
+use crate::iterator::Iter;
 use rand::Rng;
+use crate::IResult;
 use crate::memtable::arena::Arena;
 use crate::memtable::KeyComparator;
 
@@ -40,6 +42,16 @@ impl Node {
     /// Returns a raw pointer to this node at the specified level.
     fn next_offset(&self, height: usize) -> u32 {
         self.next_nodes[height].load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    fn key(&self) -> &[u8] {
+        &self.key
+    }
+
+    #[inline]
+    fn value(&self) -> &[u8] {
+        &self.value
     }
 }
 
@@ -235,22 +247,6 @@ impl<C: KeyComparator> Skiplist<C> {
         }
     }
 
-    pub fn iter_ref(&self) -> IterRef<&Skiplist<C>, C> {
-        IterRef {
-            list: self,
-            cursor: std::ptr::null(),
-            _key_cmp: std::marker::PhantomData,
-        }
-    }
-
-    pub fn iter(&self) -> IterRef<Skiplist<C>, C> {
-        IterRef {
-            list: self.clone(),
-            cursor: std::ptr::null(),
-            _key_cmp: std::marker::PhantomData,
-        }
-    }
-
     /// find_near that finds the node near to key.
     /// If less = true, it find rightmost node such that node.key < key (if allow_equal = false) or
     /// node.key <= key(if allow_equal = true).
@@ -379,12 +375,6 @@ impl<C: KeyComparator> Skiplist<C> {
     }
 }
 
-impl<C> AsRef<Skiplist<C>> for Skiplist<C> {
-    fn as_ref(&self) -> &Skiplist<C> {
-        self
-    }
-}
-
 impl Drop for SkiplistCore {
     fn drop(&mut self) {
         let mut node = self.head.as_ptr();
@@ -408,66 +398,76 @@ unsafe impl<C: Send> Send for Skiplist<C> {}
 
 unsafe impl<C: Sync> Sync for Skiplist<C> {}
 
-pub struct IterRef<T, C>
-    where
-        T: AsRef<Skiplist<C>>
-{
-    list: T,
+pub struct SkiplistIterator<C: KeyComparator> {
+    list: Skiplist<C>,
     cursor: *const Node,
-    _key_cmp: std::marker::PhantomData<C>,
 }
 
-impl<T: AsRef<Skiplist<C>>, C: KeyComparator> IterRef<T, C> {
-    pub fn valid(&self) -> bool {
+impl<C: KeyComparator> SkiplistIterator<C> {
+    pub fn new(list: Skiplist<C>) -> Self {
+        Self {
+            list,
+            cursor: std::ptr::null(),
+        }
+    }
+}
+
+impl<C: KeyComparator> Iter for SkiplistIterator<C> {
+    fn valid(&self) -> bool {
         !self.cursor.is_null()
     }
 
-    pub fn key(&self) -> &Bytes {
+    fn key(&self) -> &[u8] {
         assert!(self.valid());
-        unsafe { &(*self.cursor).key }
+        unsafe { &(*self.cursor).key() }
     }
 
-    pub fn value(&self) -> &Bytes {
+    fn value(&self) -> &[u8] {
         assert!(self.valid());
-        unsafe { &(*self.cursor).value }
+        unsafe { &(*self.cursor).value() }
     }
 
-    pub fn next(&mut self) {
+    fn next(&mut self) {
         assert!(self.valid());
         unsafe {
             let cursor_offset = (&*self.cursor).next_offset(0);
-            self.cursor = self.list.as_ref().core.arena.get_ptr::<Node>(cursor_offset);
+            self.cursor = self.list.core.arena.get_ptr::<Node>(cursor_offset);
         }
     }
 
-    pub fn prev(&mut self) {
+    fn prev(&mut self) {
         assert!(self.valid());
         unsafe {
-            self.cursor = self.list.as_ref().find_near(self.key(), true, false);
+            self.cursor = self.list.find_near(self.key(), true, false);
         }
     }
 
-    pub fn seek(&mut self, target: &[u8]) {
+    fn seek(&mut self, target: &[u8]) {
         unsafe {
-            self.cursor = self.list.as_ref().find_near(target, false, true);
+            self.cursor = self.list.find_near(target, false, true);
         }
     }
 
-    pub fn seek_for_prev(&mut self, target: &[u8]) {
+    fn seek_for_prev(&mut self, target: &[u8]) {
         unsafe {
-            self.cursor = self.list.as_ref().find_near(target, true, true);
+            self.cursor = self.list.find_near(target, true, true);
         }
     }
 
-    pub fn seek_to_first(&mut self) {
+    fn seek_to_first(&mut self) {
         unsafe {
-            let cursor_offset = (&*self.list.as_ref().core.head.as_ptr()).next_offset(0);
-            self.cursor = self.list.as_ref().core.arena.get_ptr::<Node>(cursor_offset);
+            let cursor_offset = (&*self.list.core.head.as_ptr()).next_offset(0);
+            self.cursor = self.list.core.arena.get_ptr::<Node>(cursor_offset);
         }
     }
 
-    pub fn seek_to_last(&mut self) {
-        self.cursor = self.list.as_ref().find_last();
+    fn seek_to_last(&mut self) {
+        self.cursor = self.list.find_last();
+    }
+
+    // TODO Calculates whether the current memory is healthy.
+    fn status(&mut self) -> IResult<()> {
+        Ok(())
     }
 }
 
@@ -547,7 +547,7 @@ mod tests {
             }
         }
 
-        let mut iter = list.iter_ref();
+        let mut iter = SkiplistIterator::new(list.clone());
         assert!(!iter.valid());
         iter.seek_to_first();
         assert!(!iter.valid());
@@ -685,7 +685,7 @@ mod tests {
         let n = 100;
         let comp = FixedLengthSuffixComparator::new(8);
         let list = Skiplist::with_capacity(comp, 1 << 20);
-        let mut iter_ref = list.iter_ref();
+        let mut iter_ref = SkiplistIterator::new(list.clone());
         assert!(!iter_ref.valid());
         iter_ref.seek_to_first();
         assert!(!iter_ref.valid());
@@ -708,7 +708,7 @@ mod tests {
         let n = 100;
         let comp = FixedLengthSuffixComparator::new(8);
         let list = Skiplist::with_capacity(comp, 1 << 20);
-        let mut iter_ref = list.iter_ref();
+        let mut iter_ref = SkiplistIterator::new(list.clone());
         assert!(!iter_ref.valid());
         iter_ref.seek_to_last();
         assert!(!iter_ref.valid());
@@ -731,7 +731,7 @@ mod tests {
         let n = 100;
         let comp = FixedLengthSuffixComparator::new(8);
         let list = Skiplist::with_capacity(comp, 1 << 20);
-        let mut iter_ref = list.iter_ref();
+        let mut iter_ref = SkiplistIterator::new(list.clone());
         assert!(!iter_ref.valid());
         iter_ref.seek_to_first();
         assert!(!iter_ref.valid());

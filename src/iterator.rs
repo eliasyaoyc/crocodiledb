@@ -3,7 +3,7 @@ use crate::IResult;
 /// A common trait for iterating all the key/value entries.
 ///
 /// An `Iterator` must be invalid once created
-pub trait Iterator {
+pub trait Iter {
     /// An iterator is either positioned at a key/value pair, or
     /// not valid.  This method returns true iff the iterator is valid.
     fn valid(&self) -> bool;
@@ -25,6 +25,8 @@ pub trait Iterator {
     /// valid iff the iterator was not positioned at the last entry in the source.
     /// REQUIRES: `valid()`
     fn next(&mut self);
+
+    fn seek_for_prev(&mut self, target: &[u8]);
 
     /// Moves to the previous entry in the source.  After this call, the iterator
     /// is valid iff the iterator was not positioned at the first entry in source.
