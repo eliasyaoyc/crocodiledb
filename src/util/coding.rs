@@ -15,7 +15,7 @@ pub fn put_fixed_32(dst: &mut Vec<u8>, value: u32) {
 
 pub fn put_fixed_64(dst: &mut Vec<u8>, value: u64) {
     let mut buf = [0u8; 8];
-    encode_fixed_64(&mut buf, value);
+    encode_fixed_64(&mut buf[..], value);
     dst.extend_from_slice(&buf);
 }
 
@@ -27,7 +27,7 @@ pub fn encode_fixed_32(dst: &mut [u8], value: u32) {
     );
     unsafe {
         let mut bytes = transmute::<u32, [u8; 4]>(value.to_le());
-        copy_nonoverlapping(dst.as_ptr(), bytes.as_mut_ptr(), 4);
+        copy_nonoverlapping(bytes.as_ptr(), dst.as_mut_ptr(), 4);
     }
 }
 
@@ -39,7 +39,7 @@ pub fn encode_fixed_64(dst: &mut [u8], value: u64) {
     );
     unsafe {
         let mut bytes = transmute::<u64, [u8; 8]>(value.to_le());
-        copy_nonoverlapping(dst.as_ptr(), bytes.as_mut_ptr(), 8);
+        copy_nonoverlapping(bytes.as_ptr(), dst.as_mut_ptr(), 8);
     }
 }
 

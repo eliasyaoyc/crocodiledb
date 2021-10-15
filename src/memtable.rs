@@ -22,6 +22,12 @@ impl<C: KeyComparator> MemTable<C> {
         }
     }
 
+    #[inline]
+    pub fn iter(&self) -> MemTableIterator<C> {
+        let skiplist = SkiplistIterator::new(self.table.clone());
+        MemTableIterator::new(skiplist)
+    }
+
     /// Add an entry into memtable that maps key to value at the
     /// specified sequence number and with the specified type.
     /// Typically value will be empty if type==kTypeDeletion.
@@ -45,7 +51,6 @@ impl<C: KeyComparator> MemTable<C> {
         put_fixed_64(&mut buf, (sequence_number << 8) | value_type as u64);
         // notice `put_varint_prefixed_slice` will add value size first then add data.
         VarintU32::put_varint_prefixed_slice(&mut buf, value);
-        dbg!(buf.clone());
         self.table.put(buf, vec![]);
     }
 
@@ -57,8 +62,7 @@ impl<C: KeyComparator> MemTable<C> {
         let mut iter = SkiplistIterator::new(self.table.clone());
         iter.seek(mem_key);
         if iter.valid() {
-            let mut k = iter.key().to_vec();
-            let mut k: &[u8] = &k;
+            let mut k = iter.key();
             let ikey = extract_varint32_encoded_slice(&mut k);
             let key_size = ikey.len();
             match self.table.c.compare_key(&ikey[..key_size - INTERNAL_KEY_TAIL], key.user_key()) {
@@ -153,6 +157,7 @@ impl<C: KeyComparator> Iter for MemTableIterator<C> {
 #[cfg(test)]
 mod tests {
     use crate::db::format::{LookupKey, ValueType};
+    use crate::iterator::Iter;
     use crate::memtable::key::FixedLengthSuffixComparator;
     use crate::memtable::MemTable;
 
@@ -161,8 +166,31 @@ mod tests {
         let cmp = FixedLengthSuffixComparator::new(3);
         let mut mem = MemTable::with_capacity(cmp, 1 << 20);
         mem.add(1, ValueType::KTypeValue, b"foo", b"val1");
+        mem.add(2, ValueType::KTypeValue, b"foo", b"val2");
 
         let v = mem.get(&LookupKey::new(b"foo", 1));
         assert_eq!(b"val1", v.unwrap().unwrap().as_slice());
+        let v = mem.get(&LookupKey::new(b"foo", 2));
+        assert_eq!(b"val2", v.unwrap().unwrap().as_slice());
+    }
+
+    #[test]
+    fn test_memtable_scan() {
+        let cmp = FixedLengthSuffixComparator::new(3);
+        let mut mem = MemTable::with_capacity(cmp, 1 << 20);
+        let mut iter = mem.iter();
+        let tests = vec![
+            (2, ValueType::Value, "boo", "boo"),
+            (4, ValueType::Value, "foo", "val3"),
+            (3, ValueType::Deletion, "foo", ""),
+            (2, ValueType::Value, "foo", "val2"),
+            (1, ValueType::Value, "foo", "val1"),
+        ];
+        for (seq, t, key, value) in tests.clone().drain(..) {
+            mem.add(seq, t, key.as_bytes(), value.as_bytes());
+        }
+        iter.seek_to_first();
+        assert!(iter.valid());
+        let key = iter.key();
     }
 }
