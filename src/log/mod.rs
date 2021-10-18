@@ -5,8 +5,11 @@ mod log_reader;
 pub trait Log {}
 
 pub enum RecordType {
+    // Zero is reserved for preallocated files.
     KZeroType = 0,
     KFullType = 1,
+
+    // For fragments.
     KFirstType = 2,
     KMiddleType = 3,
     KLastType = 4,
@@ -25,5 +28,9 @@ impl From<u32> for RecordType {
     }
 }
 
+pub const MAX_RECORD_TYPE: RecordType = RecordType::KLastType;
+
+pub const BLOCK_SIZE: u32 = 32768;
+
 /// Header is checksum(4 bytes)  + length(2 bytes) + type(1 byte).
-const HEADER: usize = 4 + 2 + 1;
+pub const HEADER_SIZE: usize = 4 + 2 + 1;

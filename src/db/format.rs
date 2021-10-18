@@ -7,6 +7,29 @@ use crate::filter::FilterPolicy;
 use crate::util::coding::{decode_fixed_64, put_fixed_64, VarintU32};
 use crate::util::comparator::Comparator;
 
+/// The maximum level of SSTable.
+pub const NUM_LEVELS: u32 = 7;
+
+/// Level-0 compaction is started when we hit this many files.
+pub const L0_COMPACTION_TRIGGER: u32 = 4;
+
+/// Soft limit on number of level-0 files. We slow down writes at this point. (Sleep 1ms).
+pub const L0_SLOWDOWN_WRITES_TRIGGER: u32 = 8;
+
+/// Maximum number if level-0 files. We stop writes at this point.
+pub const L0_STOP_WRITES_TRIGGER: u32 = 12;
+
+/// Maximum level to which a new compacted memtable is pushed if it
+/// dose not create overlap. We try to push to level 2 to avoid the
+/// relatively expensive level 0=> 1 compactions and to avoid some
+/// expensive manifest file operations. We do not push all the way to
+/// the largest level since that can generate a lot of wasted dist
+/// space if the same key space is being repeatedly overwritten.
+pub const MAX_MEM_COMPACT_LEVEL: u32 = 2;
+
+/// Approximate gap in bytes between samples of data read during iteration.
+pub const READ_BYTES_PERIOD:u32 = 1047576;
+
 /// The max key sequence number. The value is 2^56 -1 because the sequence number
 /// only task 56 bits when is serialized to `InternalKey`.
 pub const MAX_KEY_SEQUENCE: u64 = (1u64 << 56) - 1;
