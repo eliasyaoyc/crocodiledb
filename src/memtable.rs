@@ -180,11 +180,11 @@ mod tests {
         let mut mem = MemTable::with_capacity(cmp, 1 << 20);
         let mut iter = mem.iter();
         let tests = vec![
-            (2, ValueType::Value, "boo", "boo"),
-            (4, ValueType::Value, "foo", "val3"),
-            (3, ValueType::Deletion, "foo", ""),
-            (2, ValueType::Value, "foo", "val2"),
-            (1, ValueType::Value, "foo", "val1"),
+            (2, ValueType::KTypeValue, "boo", "boo"),
+            (4, ValueType::KTypeValue, "foo", "val3"),
+            (3, ValueType::KTypeDeletion, "foo", ""),
+            (2, ValueType::KTypeValue, "foo", "val2"),
+            (1, ValueType::KTypeValue, "foo", "val1"),
         ];
         for (seq, t, key, value) in tests.clone().drain(..) {
             mem.add(seq, t, key.as_bytes(), value.as_bytes());
