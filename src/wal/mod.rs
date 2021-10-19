@@ -1,5 +1,5 @@
-mod log_writer;
-mod log_reader;
+mod writer;
+mod reader;
 
 
 pub trait Log {}

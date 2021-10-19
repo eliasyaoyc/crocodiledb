@@ -1,4 +1,4 @@
-use crate::log::Log;
+use crate::wal::Log;
 
 pub struct LogWriter<L: Log> {
     log: L,

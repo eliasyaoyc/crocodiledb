@@ -4,6 +4,10 @@ use thiserror::Error;
 pub enum Error {
     #[error("key not found.")]
     NotFound,
+    #[error("dir not exist.")]
+    DirNotExist,
+    #[error("I/O operation error: {}",0)]
+    IO(std::io::Error),
 }
 
 
