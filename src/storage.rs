@@ -1,32 +1,40 @@
 use crate::IResult;
-use std::fs::File;
+use std::path::{Path, PathBuf};
 use crate::error::Error;
 
 mod file;
 mod memory;
 
-pub trait Storage {
+pub trait Storage: Sync + Send {
+    type F: File + 'static;
+
     /// Create the specified path file/directory.
-    fn create(&mut self, name: &str) -> IResult<()>;
+    fn create<P: AsRef<Path>>(&mut self, name: P) -> IResult<Self::F>;
+
+    /// Open a file for writing and reading.
+    fn open<P: AsRef<Path>>(&self, name: P) -> IResult<Self::F>;
+
+    /// Delete the named file
+    fn remove<P: AsRef<Path>>(&self, name: P) -> IResult<()>;
+
+    /// Removes a directory at this path. If `recursively` , removes all its contents.
+    fn remove_dir<P: AsRef<Path>>(&self, dir: P, recursively: bool) -> IResult<()>;
+
 
     /// Returns true iff the name file or dir exists.
-    fn exists(&self, name: &str) -> bool;
+    fn exists<P: AsRef<Path>>(&self, name: P) -> bool;
 
     /// Returns a list of the path to each file in given directory,
-    /// If recursive is true, it will recursive inner directory.
     ///
     /// If not found the given directory then return `Error::DirNotFound`.
-    fn list(&self, dir: &str, recursive: bool) -> IResult<Vec<&str>>;
-
-    /// Delete the named file/directory.
-    ///
-    /// If not found the dir then return `Error::DirNotExist`.
-    fn remove(&mut self, name: &str) -> IResult<()>;
+    fn list<P: AsRef<Path>>(&self, dir: P) -> IResult<Vec<PathBuf>>;
 
     /// Rename a file or directory to a new name, replacing the original file if
     /// `new` already exists.
-    fn rename(&mut self, src: &str, target: &str) -> IResult<()>;
+    fn rename<P: AsRef<Path>>(&mut self, src: P, target: P) -> IResult<()>;
+}
 
+pub trait File: Sync + Send {
     /// Lock the file for exclusive usage, blocking if the file is currently locked.
     fn lock_file(&self) -> IResult<()>;
 
@@ -86,6 +94,7 @@ pub trait Storage {
     /// Close the fd.
     fn close(&mut self) -> IResult<()>;
 }
+
 
 /// write "data" to the named file.
 pub fn write_string_to_file<S: Storage>(
