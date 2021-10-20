@@ -34,3 +34,8 @@ impl FilterPolicy for BloomFilter {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+}

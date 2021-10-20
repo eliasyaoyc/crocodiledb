@@ -6,8 +6,8 @@ pub enum Error {
     NotFound,
     #[error("dir not exist.")]
     DirNotExist,
-    #[error("I/O operation error: {}",0)]
-    IO(std::io::Error),
+    #[error("I/O operation error: {0}")]
+    IO(#[from] std::io::Error),
 }
 
 

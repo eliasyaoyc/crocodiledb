@@ -1,3 +1,5 @@
+use std::fs::OpenOptions;
+use std::io::{BufReader, BufWriter, SeekFrom, Write};
 use crate::IResult;
 use std::path::{Path, PathBuf};
 use crate::error::Error;
@@ -9,7 +11,7 @@ pub trait Storage: Sync + Send {
     type F: File + 'static;
 
     /// Create the specified path file/directory.
-    fn create<P: AsRef<Path>>(&mut self, name: P) -> IResult<Self::F>;
+    fn create<P: AsRef<Path>>(&self, name: P) -> IResult<Self::F>;
 
     /// Open a file for writing and reading.
     fn open<P: AsRef<Path>>(&self, name: P) -> IResult<Self::F>;
@@ -31,7 +33,11 @@ pub trait Storage: Sync + Send {
 
     /// Rename a file or directory to a new name, replacing the original file if
     /// `new` already exists.
-    fn rename<P: AsRef<Path>>(&mut self, src: P, target: P) -> IResult<()>;
+    fn rename<P: AsRef<Path>>(&self, src: P, target: P) -> IResult<()>;
+
+    /// Recursively create a directory and all of its parent components if they
+    /// are missing.
+    fn mkdir_all<P: AsRef<Path>>(&self, dir: P) -> IResult<()>;
 }
 
 pub trait File: Sync + Send {
@@ -78,11 +84,11 @@ pub trait File: Sync + Send {
 
     /// Read bytes from the slice capacity in this source into a buffer, returning how
     /// many bytes were read.
-    fn read(&self, buf: &mut [u8]) -> IResult<usize>;
+    fn read(&mut self, buf: &mut [u8]) -> IResult<usize>;
 
     /// Read all bytes in this source into a buffer, returning how many
     /// bytes were read.
-    fn read_all(&self, buf: &mut Vec<u8>) -> IResult<usize>;
+    fn read_all(&mut self, buf: &mut Vec<u8>) -> IResult<usize>;
 
     /// Write bytes from the slice capacity in this source into a buffer, returning how
     /// many bytes were write.
@@ -91,33 +97,30 @@ pub trait File: Sync + Send {
     /// Flush buffer bytes to disk.
     fn flush(&mut self) -> IResult<()>;
 
+    fn seek(&mut self, pos: SeekFrom) -> IResult<u64>;
+
+    fn len(&self) -> IResult<u64>;
+
     /// Close the fd.
     fn close(&mut self) -> IResult<()>;
 }
 
 
-/// write "data" to the named file.
-pub fn write_string_to_file<S: Storage>(
+/// write "data" to the named file and flush file to disk iff `should_sync` is true.
+pub fn write_string_to_file<S: Storage, P: AsRef<Path>>(
     env: &S,
     data: String,
-    file_name: &str,
+    file_name: P,
+    should_sync: bool,
 ) -> IResult<()>
 {
+    let mut file = env.create(&file_name)?;
+    file.write(data.as_bytes())?;
+    if should_sync {
+        file.flush()?;
+    }
+    if file.close().is_err() {
+        env.remove(&file_name)?;
+    }
     Ok(())
-}
-
-/// read the named file to data.
-pub fn read_file_to_string<S: Storage>(
-    env: &S,
-    file_name: &str,
-) -> IResult<String>
-{
-    Ok(String::new())
-}
-
-#[test]
-fn test() {
-    let v = vec![1, 2, 3, 4];
-    let r = &v[v.len()..];
-    println!("{:?}", r);
 }

@@ -1,4 +1,5 @@
 mod bloom;
+mod cuckoo;
 
 pub trait FilterPolicy {
     /// Returns the name of this policy. Note that if the filter encoding
