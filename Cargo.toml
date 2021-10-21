@@ -10,6 +10,7 @@ path = "bin/corcodiledb.rs"
 
 [dependencies]
 bytes = "1.1.0"
+crc32fast = "1.2.1"
 fs2 = "0.4.3"
 rand = "0.8.4"
 thiserror = "1.0.29"

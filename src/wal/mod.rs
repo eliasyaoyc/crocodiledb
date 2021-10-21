@@ -1,9 +1,7 @@
 mod writer;
 mod reader;
 
-
-pub trait Log {}
-
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RecordType {
     // Zero is reserved for preallocated files.
     KZeroType = 0,
@@ -15,8 +13,8 @@ pub enum RecordType {
     KLastType = 4,
 }
 
-impl From<u32> for RecordType {
-    fn from(v: u32) -> Self {
+impl From<usize> for RecordType {
+    fn from(v: usize) -> Self {
         match v {
             0 => RecordType::KZeroType,
             1 => RecordType::KFullType,
@@ -30,7 +28,7 @@ impl From<u32> for RecordType {
 
 pub const MAX_RECORD_TYPE: RecordType = RecordType::KLastType;
 
-pub const BLOCK_SIZE: u32 = 32768;
+pub const BLOCK_SIZE: usize = 32768;
 
 /// Header is checksum(4 bytes)  + length(2 bytes) + type(1 byte).
 pub const HEADER_SIZE: usize = 4 + 2 + 1;
