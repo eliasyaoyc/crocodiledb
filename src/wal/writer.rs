@@ -39,9 +39,11 @@ impl<F: File> Writer<F> {
         // Fragment the record if necessary and emit it. Note that if slice
         // is empty, we still want to iterate once to emit a single
         // zero-length record.
-        while left > 0 {
+        while {
             // Remaining capacity of the current block.
             let left_over = BLOCK_SIZE - self.block_offset;
+            assert!(left_over >= 0, "[WAL Writer] current block space is zero");
+
             if left_over < HEADER_SIZE {
                 // Switch to a new block (the left size if not enough for a record header).
                 if left_over > 0 {
@@ -53,6 +55,8 @@ impl<F: File> Writer<F> {
             }
 
             // Invariant: we never leave less than HeaderSize bytes in a block.
+            // Notice, if left capacity less than `HeaderSize` will use a new block,
+            // so it must greater than  `HeaderSize`.
             assert!(BLOCK_SIZE - self.block_offset >= HEADER_SIZE,
                     "[WAL Writer] the left space of block {} is less than header size {}",
                     BLOCK_SIZE - self.block_offset,
@@ -60,7 +64,9 @@ impl<F: File> Writer<F> {
 
             // The available of current block(exclude header size).
             let avail = BLOCK_SIZE - self.block_offset - HEADER_SIZE;
+            // Truncate if need to write record greater than `avail`.
             let fragment_length = if left < avail { left } else { avail };
+            // If equals represent its can write to end.
             let end = left == fragment_length;
             let record_type =
                 if begin && end {
@@ -77,7 +83,11 @@ impl<F: File> Writer<F> {
             self.emit_physical_record(record_type, &s[start..start + fragment_length])?;
             left -= fragment_length;
             begin = false;
-        }
+
+            // Notice: Why use it instead of while left > 0 ?
+            // We needs to support add empty emppty.
+            left > 0
+        } {}
         Ok(())
     }
 

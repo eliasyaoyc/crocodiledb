@@ -29,10 +29,19 @@ pub struct Reader<F: File> {
     // whether check sum for the record or not.
     checksum: bool,
     buffer: Vec<u8>,
+    // The valid data length in buffer.
+    buffer_length: usize,
+    // Last `read` indicated EOF by returning < `BlockSize`.
     eof: bool,
+    // Offset of the last record returned by `read_record`.
     last_record_offset: u64,
+    // Offset of the first location past the end of buffer.
     end_of_buffer_offset: u64,
+    // Offset at which to start looking for the first record to return.
     initial_offset: u64,
+    // True if we are resynchronizing after a seek (initial_offset > 0). In
+    // particular, a run of `KMiddleType` and `KLastType` records can be silently
+    // skipped in this mode.
     resyncing: bool,
 }
 
@@ -48,6 +57,7 @@ impl<F: File> Reader<F> {
             reporter,
             checksum,
             buffer: vec![0; BLOCK_SIZE],
+            buffer_length: 0,
             eof: false,
             last_record_offset: 0,
             end_of_buffer_offset: 0,
@@ -80,7 +90,7 @@ impl<F: File> Reader<F> {
                         }
                     }
 
-                    let physical_record_offset = self.end_of_buffer_offset - self.buffer.len() as u64 - HEADER_SIZE as u64 - record.data.len() as u64;
+                    let physical_record_offset = self.end_of_buffer_offset - self.buffer_length as u64 - HEADER_SIZE as u64 - record.data.len() as u64;
 
                     match record.t {
                         RecordType::KFullType => {
@@ -101,7 +111,6 @@ impl<F: File> Reader<F> {
                             buf.clear();
                             buf.append(&mut record.data);
                             in_fragmented_record = true;
-                            break;
                         }
                         RecordType::KMiddleType => {
                             if !in_fragmented_record {
@@ -117,7 +126,6 @@ impl<F: File> Reader<F> {
                             } else {
                                 buf.append(&mut record.data);
                             }
-                            break;
                         }
                         RecordType::KLastType => {
                             if !in_fragmented_record {
@@ -136,7 +144,6 @@ impl<F: File> Reader<F> {
                                 self.last_record_offset = prospective_record_offset;
                                 return true;
                             }
-                            break;
                         }
                         _ => {}
                     }
@@ -155,25 +162,26 @@ impl<F: File> Reader<F> {
                                 in_fragmented_record = false;
                                 buf.clear();
                             }
-                            break;
                         }
                     }
                 }
             }
         }
-        true
     }
 
     /// Return type, or one of the preceding special values.
     fn read_physical_record(&mut self) -> Result<Record, ReportError> {
         loop {
-            if self.buffer.len() < HEADER_SIZE {
-                self.buffer.clear();
+            // we're reached the end of a block and do not have a valid header.
+            if self.buffer_length < HEADER_SIZE {
+                self.buffer = vec![0; BLOCK_SIZE];
+                self.buffer_length = 0;
                 if !self.eof {
                     // Try to read a block into buf.
                     match self.file.read(&mut self.buffer) {
                         Ok(n) => {
                             self.end_of_buffer_offset += n as u64;
+                            self.buffer_length = n;
                             if n < BLOCK_SIZE {
                                 self.eof = true
                             }
@@ -186,47 +194,65 @@ impl<F: File> Reader<F> {
                     }
                     continue;
                 } else {
+                    // Note that if buffer is non-empty, we have a truncate header at the
+                    // end of the file, which can be caused by the writer crashing in the
+                    // middle of writing the header. Instead of considering this an error,
+                    // just report EOF.
                     return Err(ReportError::EOF);
                 }
             }
 
             // Parse the header.
             let header = &self.buffer[0..HEADER_SIZE];
-            let a = header[4] & 0xff;
-            let b = header[5] & 0xff;
+            let a = header[4] as usize & 0xff;
+            let b = header[5] as usize & 0xff;
             let record_type = header[6];
             let length = a | (b << 8);
-            if HEADER_SIZE + length as usize > self.buffer.len() {
-                let drop_size = self.buffer.len();
-                self.buffer.clear();
+            // a record must be included in one block.
+            if HEADER_SIZE + length as usize > self.buffer_length {
+                let drop_size = self.buffer_length;
+                self.buffer = vec![0; BLOCK_SIZE];
+                self.buffer_length = 0;
                 if !self.eof {
                     self.report_drop(drop_size as u64, "bad record length.");
                     return Err(ReportError::BadRecord);
                 }
+                // If the end of the file has been reached without reading |length| bytes
+                // of payload, assume the writer died in the middle of writing the record.
+                // Don't report a corruption.
                 return Err(ReportError::EOF);
             }
 
+            // Handling empty record generated by mmap.
             if record_type == 0 && length == 0 {
-                self.buffer.clear();
+                self.buffer = vec![0; BLOCK_SIZE];
+                self.buffer_length = 0;
                 return Err(ReportError::BadRecord);
             }
 
             // Check crc
             if self.checksum {
-                let expected_crc = crc32::unmask(decode_fixed_32(header));
+                let expected_crc = crc32::unmask(decode_fixed_32(header)); //  first four bytes.
                 let actual_crc = crc32::hash(&self.buffer[HEADER_SIZE - 1..HEADER_SIZE + length as usize]);
                 if actual_crc != expected_crc {
-                    let drop_size = self.buffer.len();
-                    self.buffer.clear();
+                    // Drop the rest of the buffer since `length` itself may have
+                    // been corrupted and if we trust it, we could find some
+                    // fragment of a real log record that just happens to look
+                    // like a valid log record.
+                    let drop_size = self.buffer_length;
+                    self.buffer = vec![0; BLOCK_SIZE];
+                    self.buffer_length = 0;
                     self.report_drop(drop_size as u64, "checksum mismatch.");
                     return Err(ReportError::BadRecord);
                 }
             }
 
+            // Drain the header size and data length.
             let mut data = self.buffer.drain(0..HEADER_SIZE + length as usize).collect::<Vec<u8>>();
+            self.buffer_length -= data.len();
 
             // Skip physical record that started before `initial_offset`.
-            if (self.end_of_buffer_offset - self.buffer.len() as u64 - HEADER_SIZE as u64 - length as u64) < self.initial_offset {
+            if (self.end_of_buffer_offset - self.buffer_length as u64 - HEADER_SIZE as u64 - length as u64) < self.initial_offset {
                 return Err(ReportError::BadRecord);
             }
 
@@ -244,7 +270,6 @@ impl<F: File> Reader<F> {
     }
 
     /// Skips all blocks that are completely before `initial_offset`.
-    ///
     /// Return true on success. Handles reporting.
     fn skip_to_initial_block(&mut self) -> bool {
         let offset_in_block = self.initial_offset % BLOCK_SIZE as u64;
@@ -270,7 +295,10 @@ impl<F: File> Reader<F> {
     /// Reports dropped bytes to the reporter.
     fn report_drop(&self, bytes: u64, reason: &str) {
         if let Some(reporter) = self.reporter.as_ref() {
-            if self.end_of_buffer_offset - self.buffer.len() as u64 - bytes >= self.initial_offset {
+            // make sure the bytes not overflows `the initial_offset`
+            // and a special case is that we got a read error when we first read a block
+            if self.end_of_buffer_offset  == 0
+                || self.end_of_buffer_offset - bytes >= self.initial_offset {
                 reporter.corruption(bytes, reason);
             }
         }
