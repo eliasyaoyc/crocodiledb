@@ -1,10 +1,11 @@
 //！ WAL module that used for write before memtable. It can persist data to avoid loss.
 //! Each log file divided to block and every block size is 32MB.
 //! Each log file consists of four parts:
-//! 1). Checksum,      4 bytes.
-//! 2). Record length, 2bytes.
-//! 3). Record Type,   1bytes.
-//! 4). Data,
+//!
+//! ========================================================================
+//! Checksum 4 bytes |  Record length 2 bytes |  Record Type 1 bytes | Data
+//! ========================================================================
+//!
 //! The `Writer` crate represent write record into specified log.
 //! The `Reader` crate represent read record from specified log.
 mod writer;
