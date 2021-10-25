@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate num_derive;
+
 mod error;
 mod db;
 mod util;
@@ -11,6 +14,7 @@ mod wal;
 mod version;
 mod compaction;
 mod storage;
+pub mod snapshot;
 
 pub use error::{Error, IResult};
 pub use memtable::skiplist;

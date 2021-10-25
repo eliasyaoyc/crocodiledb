@@ -2,10 +2,11 @@ use std::cmp::{min, Ordering};
 use std::detect::__is_feature_detected::sha;
 use std::mem::size_of;
 use std::sync::Arc;
+use crate::error::Error;
 use crate::IResult;
 use crate::iterator::Iter;
 use crate::opt::Options;
-use crate::util::coding::{put_fixed_32, VarintU32};
+use crate::util::coding::{decode_fixed_32, put_fixed_32, VarintU32};
 use crate::util::comparator::Comparator;
 
 /// BlockBuilder generates blocks where keys are prefix-compressed:
@@ -143,17 +144,81 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[derive(Debug)]
 pub struct Block {
-    data: Vec<u8>,
-    size: usize,
+    // Arc instead of normal vec that avoid the data copy.
+    data: Arc<Vec<u8>>,
     // Offset in data of restart array.
     restart_offset: u32,
-    owned: bool,
+    num_restarts: u32,
 }
 
+impl Block {
+    pub fn new(data: Vec<u8>) -> IResult<Self> {
+        let size = data.len();
+        let u32_len = std::mem::size_of::<u32>();
+        if size >= u32_len {
+            let max_restarts_allowed = (data.len() - u32_len) / u32_len;
+            let num_restarts = Block::num_restarts(&data);
+            // Make sure the size is enough for restarts.
+            if num_restarts as usize <= max_restarts_allowed {
+                return Ok(Self {
+                    data: Arc::new(data),
+                    restart_offset: (size - (1 + num_restarts as usize) * u32_len) as u32,
+                    num_restarts,
+                });
+            }
+        }
+        Err(Error::Corruption("[Block] read invalid block content."))
+    }
 
-struct BlockIterator {}
+    pub fn num_restarts(data: &[u8]) -> u32 {
+        let u32_len = std::mem::size_of::<u32>();
+        assert!(
+            data.len() >= u32_len,
+            "[Block] size must be greater than u32 size, but got{}",
+            data.len()
+        );
+        decode_fixed_32(&data[data.len() - u32_len..])
+    }
 
-impl Iter for BlockIterator {
+    pub fn iter<C: Comparator>(&self, comparator: C) -> BlockIterator<C> {
+        BlockIterator::new(
+            comparator,
+            self.data.clone(),
+            self.restart_offset,
+            self.num_restarts,
+        )
+    }
+}
+
+struct BlockIterator<C: Comparator> {
+    comparator: C,
+    data: Arc<Vec<u8>>,
+    restarts: u32,
+    num_restarts: u32,
+    current: u32,
+    restart_index: u32,
+    key: Vec<u8>,
+    value: Vec<u8>,
+    err: Option<Error>,
+}
+
+impl<C: Comparator> BlockIterator<C> {
+    pub fn new(comparator: C, data: Arc<Vec<u8>>, restarts: u32, num_restarts: u32) -> Self {
+        BlockIterator {
+            comparator,
+            data,
+            restarts,
+            num_restarts,
+            current: restarts,
+            restart_index: num_restarts,
+            key: vec![],
+            value: vec![],
+            err: None,
+        }
+    }
+}
+
+impl<C: Comparator> Iter for BlockIterator<C> {
     fn valid(&self) -> bool {
         todo!()
     }
@@ -194,3 +259,6 @@ impl Iter for BlockIterator {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {}
