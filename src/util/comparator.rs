@@ -29,7 +29,7 @@ pub trait Comparator: Sync + Send {
 }
 
 /// `ByteWiseComparator` uses lexicographic byte-wise ordering.
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct BytewiseComparator {}
 
 impl Comparator for BytewiseComparator {
