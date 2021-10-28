@@ -15,6 +15,7 @@ mod version;
 mod compaction;
 mod storage;
 pub mod snapshot;
+mod table_cache;
 
 pub use error::{Error, IResult};
 pub use memtable::skiplist;
