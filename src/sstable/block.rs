@@ -194,7 +194,7 @@ impl Block {
     }
 }
 
-struct BlockIterator<C: Comparator> {
+pub struct BlockIterator<C: Comparator> {
     comparator: C,
     // Underlying block contents.
     data: Arc<Vec<u8>>,

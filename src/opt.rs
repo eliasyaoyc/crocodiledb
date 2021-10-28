@@ -1,4 +1,8 @@
+use std::sync::Arc;
+use crate::cache::Cache;
+use crate::filter::FilterPolicy;
 use crate::snapshot::Snapshot;
+use crate::storage::File;
 use crate::util::comparator::{BytewiseComparator, Comparator};
 
 /// DB contents are stored in a set of blocks, each of which holds a
@@ -18,33 +22,126 @@ impl From<u8> for CompressionType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Options {
-    /// size of each block inside SST.
-    pub table_size: usize,
+    /// If true, the database will be created if it is missing.
+    pub create_if_missing: bool,
+
+    /// If true, an error is raised if the database already exists.
+    pub error_if_exists: bool,
+
+    /// If true, the implementation will do aggressive checking of the
+    /// data it is processing and will stop early if it detects any
+    /// errors.  This may have unforeseen ramifications: for example, a
+    /// corruption of one DB entry may cause a large number of entries to
+    /// become unreadable or for the entire DB to become unopenable.
+    pub paranoid_checks: bool,
+
+    // -------------------
+    // Parameters that affect compaction:
+    /// The max number of levels except L0
+    pub max_levels: usize,
+
+    /// The number of files necessary to trigger an L0 compaction.
+    pub l0_compaction_threshold: usize,
+
+    /// Soft limit on the number of L0 files. Writes are slowed down when this
+    /// threshold is reached.
+    pub l0_slowdown_writes_threshold: usize,
+
+    /// Hard limit on the number of L0 files. Writes are stopped when this
+    /// threshold is reached.
+    pub l0_stop_writes_threshold: usize,
+
+    /// The maximum number of bytes for L1. The maximum number of bytes for other
+    /// levels is computed dynamically based on this value. When the maximum
+    /// number of bytes for a level is exceeded, compaction is requested.
+    pub l1_max_bytes: u64,
+
+    /// Maximum level to which a new compacted memtable is pushed if it
+    /// does not create overlap.  We try to push to level 2 to avoid the
+    /// relatively expensive level 0=>1 compactions and to avoid some
+    /// expensive manifest file operations.  We do not push all the way to
+    /// the largest level since that can generate a lot of wasted disk
+    /// space if the same key space is being repeatedly overwritten.
+    pub max_mem_compact_level: usize,
+
+    /// Approximate gap in bytes between samples of data read during iteration
+    pub read_bytes_period: u64,
+
+    // -------------------
+    // Parameters that affect performance:
+    /// Amount of data to build up in memory (backed by an unsorted log
+    /// on disk) before converting to a sorted on-disk file.
+    ///
+    /// Larger values increase performance, especially during bulk loads.
+    /// Up to two write buffers may be held in memory at the same time,
+    /// so you may wish to adjust this parameter to control memory usage.
+    /// Also, a larger write buffer will result in a longer recovery time
+    /// the next time the database is opened.
+    pub write_buffer_size: usize,
+
+    /// Number of open files that can be used by the DB.  You may need to
+    /// increase this if your database has a large working set (budget
+    /// one open file per 2MB of working set).
+    pub max_open_files: usize,
+
+    // -------------------
+    // Control over blocks (user data is stored in a set of blocks, and
+    // a block is the unit of reading from disk).
+    /// If non-null, use the specified cache for blocks.
+    /// If null, we will automatically create and use an 8MB internal cache.
+    pub block_cache: Option<Arc<dyn Cache<Vec<u8>, Arc<Block>>>>,
+
+    /// Number of sstables that remains out of table cache
+    pub non_table_cache_files: usize,
+
     /// size of each block in bytes in SST.
     pub block_size: usize,
-    /// size of memtable, if arrived it convert to immemtable.
-    pub write_buffer_size: usize,
 
     /// Number of keys between restart points for delta encoding of keys.
     /// This parameter can be changed dynamically. Most clients should
     /// leave this parameter alone.l
     pub block_restart_interval: u32,
+
+    pub max_file_size: usize,
+
+    pub compression: CompressionType,
+
+    pub reuse_logs: bool,
+
+    pub filter_policy: Option<Arc<dyn FilterPolicy>>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
-            table_size: 0,
+            create_if_missing: false,
+            error_if_exists: false,
+            paranoid_checks: false,
+            max_levels: 7,
+            l0_compaction_threshold: 4,
+            l0_slowdown_writes_threshold: 8,
+            l0_stop_writes_threshold: 12,
+            l1_max_bytes: 64 * 1024 * 1024,
+            max_mem_compact_level: 2,
             block_size: 4 * 1024,
             write_buffer_size: 4 * 1024 * 1024,
+            max_open_files: 0,
+            block_cache: None,
             block_restart_interval: 16,
+            max_file_size: 2 * 1024 * 1024,
+            compression: CompressionType::KSnappyCompression,
+            reuse_logs: false,
+            filter_policy: None,
+            read_bytes_period: 0,
+            non_table_cache_files: 0,
         }
     }
 }
 
 /// Options that control read operations.
+#[derive(Copy, Clone)]
 pub struct ReadOptions {
     // If true, all data read from underlying storage will be
     // verity against corresponding checksums.

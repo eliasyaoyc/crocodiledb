@@ -11,13 +11,13 @@ const K_MAX_ENCODED_LENGTH: u64 = 10 + 10;
 /// Encoded length of a `Footer`. Note that the serialization of a
 /// `Footer` will always occupy exactly this many bytes. It consists
 /// of two block handles and a magic number.
-const K_ENCODED_LENGTH: u64 = 2 * K_MAX_ENCODED_LENGTH + 8;
+pub const K_ENCODED_LENGTH: u64 = 2 * K_MAX_ENCODED_LENGTH + 8;
 
 /// Magic number.
 const K_TABLE_MAGIC_NUMBER: u64 = 0xdb4775248b80fb57;
 
 /// 1-byte type  +   32-bit crc.
-const K_BLOCK_TRAILER_SIZE: usize = 5;
+pub const K_BLOCK_TRAILER_SIZE: usize = 5;
 
 /// BlockHandle is a pointer to the extent of a file that stores a data
 /// block or a meta block.
@@ -52,6 +52,13 @@ impl BlockHandle {
         self.size = size;
     }
 
+    #[inline]
+    pub fn encoded(&self) -> Vec<u8> {
+        let mut v = vec![];
+        self.encode_to(&mut v);
+        v
+    }
+
     pub fn encode_to(&self, dst: &mut Vec<u8>) {
         // Sanity check that all fields have been set.
         assert_eq!(self.offset,
@@ -80,30 +87,33 @@ impl BlockHandle {
 /// Footer encapsulates the fixed information stored at the tail
 /// end of every table file.
 pub struct Footer {
-    metaindex_handle: BlockHandle,
-    index_handle: BlockHandle,
+    pub metaindex_handle: BlockHandle,
+    pub index_handle: BlockHandle,
 }
 
 impl Footer {
-    fn new(metaindex_handle: BlockHandle, index_handle: BlockHandle) -> Self {
+    pub fn new(metaindex_handle: BlockHandle, index_handle: BlockHandle) -> Self {
         Footer {
             metaindex_handle,
             index_handle,
         }
     }
 
-    pub fn encode_to(&self, mut dst: Vec<u8>) {
-        self.metaindex_handle.encode_to(&mut dst);
-        self.index_handle.encode_to(&mut dst);
+    /// Encodeds footer and returns the encoded bytes.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut v = vec![];
+        self.metaindex_handle.encode_to(&mut v);
+        self.index_handle.encode_to(&mut v);
         dst.resize(2 * K_MAX_ENCODED_LENGTH as usize, 0);
-        put_fixed_64(&mut dst, K_TABLE_MAGIC_NUMBER);
+        put_fixed_64(&mut v, K_TABLE_MAGIC_NUMBER);
         assert_eq!(
-            dst.len() as u64,
+            v.len() as u64,
             K_ENCODED_LENGTH,
             "[Footer] the length of encoded footer is {}, expect {}",
-            dst.len(),
+            v.len(),
             K_ENCODED_LENGTH,
         );
+        v
     }
 
     pub fn decode_from(src: &[u8]) -> IResult<Self> {
@@ -119,7 +129,7 @@ impl Footer {
 
 /// Read the block identified from `file` according to the given `handle`.
 /// If the read data dose not match the checksum, return a error marked as `Error::Corruption`.
-pub fn read_block<F: File>(f: F, options: ReadOptions, handle: BlockHandle) -> IResult<Vec<u8>> {
+pub fn read_block<F: File>(f: F, verify_checksums: bool, handle: &BlockHandle) -> IResult<Vec<u8>> {
     // Read the block contents as well as the type/crc footer.
     // See `TableBuilder` for the code that built this structure.
     let n = handle.size as usize;
@@ -127,7 +137,7 @@ pub fn read_block<F: File>(f: F, options: ReadOptions, handle: BlockHandle) -> I
     f.read_exact_at(buf.as_mut_slice(), handle.offset)?;
 
     // Check crc.
-    if options.verify_checksums {
+    if verify_checksums {
         // Obtain the last four bytes in buf.
         let crc = unmask(decode_fixed_32(&buf[n + 1..]));
         let actual = hash(&buf[..=n]);
