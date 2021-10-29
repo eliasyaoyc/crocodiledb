@@ -10,12 +10,12 @@ use crate::sstable::block::{Block, BlockBuilder, BlockIterator};
 use crate::sstable::filter_block::{FilterBlockBuilder, FilterBlockReader};
 use crate::sstable::format::{BlockHandle, Footer, K_BLOCK_TRAILER_SIZE, K_ENCODED_LENGTH, read_block};
 use crate::storage::File;
-use crate::util::coding::{decode_fixed_32, put_fixed_32};
+use crate::util::coding::{decode_fixed_32, put_fixed_32, put_fixed_64};
 use crate::util::comparator::Comparator;
 use crate::util::crc32::{extend, hash, mask, unmask};
 
-mod filter_block;
-mod block;
+pub mod filter_block;
+pub mod block;
 pub mod format;
 
 /// `SSTable` is stored in dist and divide to two parts that data-block(block.rs) and meta.
@@ -218,12 +218,12 @@ pub struct TableBuilder<F: File, C: Comparator> {
 impl<F: File, C: Comparator> TableBuilder<F, C> {
     pub fn new(file: F, c: C, options: Options) -> Self {
         Self {
-            c: C,
-            options,
+            c: c.clone(),
+            options: options.clone(),
             file,
             offset: 0,
-            data_block: BlockBuilder::new(options, c.clone()),
-            index_block: BlockBuilder::new(options, c.clone()),
+            data_block: BlockBuilder::new(options.clone(), c.clone()),
+            index_block: BlockBuilder::new(options, c),
             last_key: vec![],
             num_entries: 0,
             closed: false,
@@ -279,10 +279,19 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
         self.assert_not_closed();
         if !self.data_block.empty() {
             // Make sure the pending_index_entry is false then `Add` operation is completion.
-            assert!(!self.pending_index_entry, "[TableBuilder] the index for the previous data block should never remain when flushing current block data.")
+            assert!(!self.pending_index_entry, "[TableBuilder] the index for the previous data block should never remain when flushing current block data.");
             let data_block = self.data_block.finish();
 
-            self.write_block(data_block, &mut self.pending_handle)?;
+            // If use this method that will encounter error "second mutable borrow occurs here".
+            // self.write_block(data_block, &mut self.pending_handle)?;
+            let (compressed, compression) = compress_block(data_block, self.options.compression)?;
+            write_raw_block(
+                &mut self.file,
+                compressed.as_slice(),
+                self.options.compression,
+                &mut self.pending_handle,
+                &mut self.offset,
+            )?;
 
             self.data_block.reset();
             self.pending_index_entry = true;
@@ -323,7 +332,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
 
         // Write metaindex block
         let mut meta_block_handle = BlockHandle::new(0, 0);
-        let mut meta_block_builder = BlockBuilder::new(self.options, self.c.clone());
+        let mut meta_block_builder = BlockBuilder::new(self.options.clone(), self.c.clone());
         let meta_block = {
             if has_filter_block {
                 let filter_key = if let Some(fp) = &self.options.filter_policy {
@@ -331,7 +340,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
                 } else {
                     String::from("")
                 };
-                meta_block_builder.add(filter_key.as_bytes(), &filter_block_handler.encode());
+                meta_block_builder.add(filter_key.as_bytes(), &filter_block_handler.encoded());
             }
             meta_block_builder.finish()
         };
@@ -341,7 +350,18 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
         self.maybe_append_index_block(None); // flush the last index first.
         let index_block = self.index_block.finish();
         let mut index_block_handle = BlockHandle::new(0, 0);
-        self.write_block(index_block, &mut index_block_handle)?;
+
+        // If use this method that will encounter error "second mutable borrow occurs here".
+        // self.write_block(data_block, &mut self.pending_handle)?;
+        let (compressed, compression) = compress_block(index_block, self.options.compression)?;
+        write_raw_block(
+            &mut self.file,
+            compressed.as_slice(),
+            self.options.compression,
+            &mut self.pending_handle,
+            &mut self.offset,
+        )?;
+
         self.index_block.reset();
 
         // Write footer.
@@ -540,7 +560,31 @@ impl<F: File> Table<F> {
         c: CC,
         data_block_handle: BlockHandle,
         options: ReadOptions,
-    ) -> IResult<BlockIterator<CC>> {}
+    ) -> IResult<BlockIterator<CC>> {
+        let iter = if let Some(cache) = &self.block_cache {
+            let mut cache_key_buffer = vec![0; 16];
+            put_fixed_64(&mut cache_key_buffer, self.file_number);
+            put_fixed_64(&mut cache_key_buffer, data_block_handle.offset);
+            if let Some(b) = cache.get(&cache_key_buffer) {
+                b.iter(c)
+            } else {
+                let data = read_block(&self.file, options.verify_checksums, &data_block_handle)?;
+                let charge = data.len();
+                let new_block = Block::new(data)?;
+                let b = Arc::new(new_block);
+                let iter = b.iter(c);
+                if options.fill_cache {
+                    cache.insert(cache_key_buffer, b, charge);
+                }
+                iter
+            }
+        } else {
+            let data = read_block(&self.file, options.verify_checksums, &data_block_handle)?;
+            let b = Block::new(data)?;
+            b.iter(c)
+        };
+        Ok(iter)
+    }
 
     /// Finds the first entry with the key equal or greater than target and
     /// returns the block iterator directly.
@@ -553,6 +597,39 @@ impl<F: File> Table<F> {
         key: &[u8],
     ) -> IResult<Option<BlockIterator<TC>>>
     {
+        let mut index_iter = self.index_block.iter(c.clone());
+        // Seek to the first `last key` bigger than `key`.
+        index_iter.seek(key);
+        if index_iter.valid() {
+            // It's called maybe_contained not only because the filter policy may report the falsy result,
+            // but also even if we've found a block with the last key bigger thane the target
+            // the key may not be contained if the block is the first block of the sstable.
+            let mut maybe_contained = true;
+
+            let handle_val = index_iter.value();
+            // Check the filter block.
+            if let Some(filter) = &self.filter_reader {
+                if let Ok((handle, _)) = BlockHandle::decode_from(handle_val) {
+                    if !filter.key_may_match(handle.offset, key) {
+                        maybe_contained = false;
+                    }
+                }
+            }
+            if maybe_contained {
+                let (data_block_handle, _) = BlockHandle::decode_from(handle_val)?;
+                let mut block_iter = self.block_reader(c, data_block_handle, options)?;
+                block_iter.seek(key);
+                if block_iter.valid() {
+                    return Ok(Some(block_iter));
+                }
+                block_iter.seek_to_first();
+                while block_iter.valid() {
+                    block_iter.next();
+                }
+                block_iter.status()?;
+            }
+        }
+        index_iter.status()?;
         Ok(None)
     }
 
@@ -563,6 +640,17 @@ impl<F: File> Table<F> {
     /// E.g., the approximate offset of the last key in the table will
     /// be close to the file length.
     pub fn approximate_offset_of<TC: Comparator>(&self, c: TC, key: &[u8]) -> u64 {
+        let mut index_iter = self.index_block.iter(c);
+        index_iter.seek(key);
+        if index_iter.valid() {
+            let val = index_iter.value();
+            if let Ok((h, _)) = BlockHandle::decode_from(val) {
+                return h.offset;
+            }
+        }
+        if let Some(meta) = &self.meta_block_handle {
+            return meta.offset;
+        }
         0
     }
 }

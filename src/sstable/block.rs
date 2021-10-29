@@ -32,7 +32,6 @@ use crate::util::comparator::Comparator;
 ///      restarts: vec[i]    represent the offset of the u restart point in the block.
 ///      num_restarts: u32   represent the number of the restart point.
 /// restarts[i] contains the offset within the block of the ith restart point.
-#[derive(Debug)]
 pub struct BlockBuilder<C: Comparator> {
     c: C,
     options: Options,
@@ -424,7 +423,7 @@ impl<C: Comparator> Iter for BlockIterator<C> {
 #[cfg(test)]
 mod tests {
     use crate::iterator::Iter;
-    use crate::opt::Options;
+    use crate::opt::{CompressionType, Options};
     use crate::sstable::block::{Block, BlockBuilder, BlockIterator};
     use crate::util::coding::{decode_fixed_32, put_fixed_32, VarintU32};
     use crate::util::comparator::BytewiseComparator;
@@ -432,12 +431,8 @@ mod tests {
 
     fn new_test_block() -> Vec<u8> {
         let mut samples = vec!["1", "12", "123", "abc", "abd", "acd", "bbb"];
-        let opt = Options {
-            table_size: 0,
-            block_size: 0,
-            write_buffer_size: 0,
-            block_restart_interval: 3,
-        };
+        let mut opt = Options::default();
+        opt.block_restart_interval = 3;
         let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
         for key in samples.drain(..) {
             builder.add(key.as_bytes(), key.as_bytes());
@@ -468,12 +463,9 @@ mod tests {
     #[test]
     fn test_new_empty_block() {
         let ucmp = BytewiseComparator::default();
-        let opt = Options {
-            table_size: 0,
-            block_size: 0,
-            write_buffer_size: 0,
-            block_restart_interval: 2,
-        };
+        let mut opt = Options::default();
+        opt.block_restart_interval = 2;
+
         let mut builder = BlockBuilder::new(opt, ucmp);
         let data = builder.finish();
         let length = data.len();
@@ -498,12 +490,9 @@ mod tests {
     #[test]
     fn test_simple_empty_key() {
         let ucmp = BytewiseComparator::default();
-        let opt = Options {
-            table_size: 0,
-            block_size: 0,
-            write_buffer_size: 0,
-            block_restart_interval: 2,
-        };
+        let mut opt = Options::default();
+        opt.block_restart_interval = 2;
+
         let mut builder = BlockBuilder::new(opt, ucmp);
         builder.add(b"", b"test");
         let data = builder.finish();
@@ -522,12 +511,9 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_add_inconsistent_key() {
-        let opt = Options {
-            table_size: 0,
-            block_size: 0,
-            write_buffer_size: 0,
-            block_restart_interval: 2,
-        };
+        let mut opt = Options::default();
+        opt.block_restart_interval = 2;
+
         let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
         builder.add(b"ffffff", b"");
         builder.add(b"a", b"");
@@ -535,12 +521,9 @@ mod tests {
 
     #[test]
     fn test_write_entries() {
-        let opt = Options {
-            table_size: 0,
-            block_size: 0,
-            write_buffer_size: 0,
-            block_restart_interval: 3,
-        };
+        let mut opt = Options::default();
+        opt.block_restart_interval = 3;
+
         let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
         assert!(builder.last_key.is_empty());
         // Basic key
@@ -611,12 +594,9 @@ mod tests {
             (3, vec![0, 12, 27], 33),
         ];
         for (restarts_interval, expected, buffer_size) in tests {
-            let opt = Options {
-                table_size: 0,
-                block_size: 0,
-                write_buffer_size: 0,
-                block_restart_interval: restarts_interval,
-            };
+            let mut opt = Options::default();
+            opt.block_restart_interval = restarts_interval;
+
             let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
             for key in samples.clone() {
                 builder.add(key.as_bytes(), b"");
@@ -672,12 +652,9 @@ mod tests {
     #[test]
     fn test_read_write() {
         let ucmp = BytewiseComparator::default();
-        let opt = Options {
-            table_size: 0,
-            block_size: 0,
-            write_buffer_size: 0,
-            block_restart_interval: 2,
-        };
+        let mut opt = Options::default();
+        opt.block_restart_interval = 2;
+
         let mut builder = BlockBuilder::new(opt, ucmp);
         let tests = vec![
             ("", "empty"),
@@ -714,12 +691,9 @@ mod tests {
         ];
         let mut blocks = vec![];
         for (k, v) in entries.clone() {
-            let opt = Options {
-                table_size: 0,
-                block_size: 0,
-                write_buffer_size: 0,
-                block_restart_interval: 2,
-            };
+            let mut opt = Options::default();
+            opt.block_restart_interval = 2;
+
             let mut builder = BlockBuilder::new(opt, c);
             builder.add(k.as_bytes(), v.as_bytes());
             let data = builder.finish();

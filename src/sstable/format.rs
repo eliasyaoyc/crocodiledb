@@ -22,7 +22,7 @@ pub const K_BLOCK_TRAILER_SIZE: usize = 5;
 /// BlockHandle is a pointer to the extent of a file that stores a data
 /// block or a meta block.
 pub struct BlockHandle {
-    offset: u64,
+    pub offset: u64,
     size: u64,
 }
 
@@ -104,7 +104,7 @@ impl Footer {
         let mut v = vec![];
         self.metaindex_handle.encode_to(&mut v);
         self.index_handle.encode_to(&mut v);
-        dst.resize(2 * K_MAX_ENCODED_LENGTH as usize, 0);
+        v.resize(2 * K_MAX_ENCODED_LENGTH as usize, 0);
         put_fixed_64(&mut v, K_TABLE_MAGIC_NUMBER);
         assert_eq!(
             v.len() as u64,
@@ -129,7 +129,7 @@ impl Footer {
 
 /// Read the block identified from `file` according to the given `handle`.
 /// If the read data dose not match the checksum, return a error marked as `Error::Corruption`.
-pub fn read_block<F: File>(f: F, verify_checksums: bool, handle: &BlockHandle) -> IResult<Vec<u8>> {
+pub fn read_block<F: File>(f: &F, verify_checksums: bool, handle: &BlockHandle) -> IResult<Vec<u8>> {
     // Read the block contents as well as the type/crc footer.
     // See `TableBuilder` for the code that built this structure.
     let n = handle.size as usize;

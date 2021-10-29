@@ -2,6 +2,7 @@ use std::sync::Arc;
 use crate::cache::Cache;
 use crate::filter::FilterPolicy;
 use crate::snapshot::Snapshot;
+use crate::sstable::block::Block;
 use crate::storage::File;
 use crate::util::comparator::{BytewiseComparator, Comparator};
 
@@ -22,7 +23,7 @@ impl From<u8> for CompressionType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub struct Options {
     /// If true, the database will be created if it is missing.
     pub create_if_missing: bool,
@@ -141,7 +142,7 @@ impl Default for Options {
 }
 
 /// Options that control read operations.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ReadOptions {
     // If true, all data read from underlying storage will be
     // verity against corresponding checksums.

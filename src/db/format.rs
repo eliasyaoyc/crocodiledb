@@ -239,6 +239,7 @@ impl LookupKey {
 
 /// A comparator for internal keys that uses a specified comparator for
 /// the user key portion and breaks ties by decreasing sequence number.
+#[derive(Clone)]
 pub struct InternalKeyComparator<C: Comparator> {
     comparator: C,
 }
