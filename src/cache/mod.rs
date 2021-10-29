@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-mod lru_cache;
+pub mod lru_cache;
 
 pub trait Cache<K, V>: Sync + Send
     where

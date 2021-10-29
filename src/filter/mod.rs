@@ -1,7 +1,7 @@
 pub mod bloom;
 mod cuckoo;
 
-pub trait FilterPolicy {
+pub trait FilterPolicy: Send + Sync {
     /// Returns the name of this policy. Note that if the filter encoding
     /// changes in an incompatible way, the name returned by this method
     /// must be changed. Otherwise, old incompatible filters may be
