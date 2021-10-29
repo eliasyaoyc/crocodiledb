@@ -705,8 +705,11 @@ pub fn new_table_iterator<C: Comparator, F: File>(
 mod tests {
     use std::sync::Arc;
     use crate::filter::bloom::BloomFilter;
-    use crate::opt::Options;
+    use crate::iterator::Iter;
+    use crate::opt::{Options, ReadOptions};
     use crate::sstable::{Table, TableBuilder};
+    use crate::sstable::block::Block;
+    use crate::sstable::format::{BlockHandle, read_block};
     use crate::storage::memory::MemoryStorage;
     use crate::storage::{File, Storage};
     use crate::util::comparator::BytewiseComparator;
@@ -718,7 +721,6 @@ mod tests {
         let cmp = BytewiseComparator::default();
         let bf = BloomFilter::new(16);
         o.filter_policy = Some(Arc::new(bf));
-        // let opt = Arc::new(o);
         let new_file = s.create("test").unwrap();
         let mut tb = TableBuilder::new(new_file, cmp.clone(), o.clone());
         tb.finish(false).unwrap();
@@ -727,5 +729,99 @@ mod tests {
         let table = Table::open(file, 0, file_len, o.clone(), cmp.clone()).unwrap();
         assert!(table.filter_reader.is_some());
         assert!(table.meta_block_handle.is_some());
+    }
+
+    #[test]
+    fn test_build_empty_table_without_meta_block() {
+        let s = MemoryStorage::default();
+        let new_file = s.create("test").unwrap();
+        let mut o = Options::default();
+        let cmp = BytewiseComparator::default();
+        let mut tb = TableBuilder::new(new_file, cmp, o.clone());
+        tb.finish(false).unwrap();
+        let file = s.open("test").unwrap();
+        let file_len = file.len().unwrap();
+        let cmp = BytewiseComparator::default();
+        let table = Table::open(file, 0, file_len, o.clone(), cmp).unwrap();
+        assert!(table.filter_reader.is_none());
+        assert!(table.meta_block_handle.is_none()); // no filter block means no meta block
+        let read_opt = ReadOptions::default();
+        let res = table.internal_get(read_opt, cmp, b"test").unwrap();
+        assert!(res.is_none());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_table_add_consistency() {
+        let s = MemoryStorage::default();
+        let new_file = s.create("test").expect("file create should work");
+        let mut o = Options::default();
+        let mut tb = TableBuilder::new(new_file, BytewiseComparator::default(), o.clone());
+        tb.add(b"222", b"").unwrap();
+        tb.add(b"1", b"").unwrap();
+    }
+
+    #[test]
+    fn test_block_write_and_read() {
+        let s = MemoryStorage::default();
+        let new_file = s.create("test").expect("file create should work");
+        let mut o = Options::default();
+        let cmp = BytewiseComparator::default();
+        let mut tb = TableBuilder::new(new_file, cmp, o.clone());
+        let test_pairs = vec![("", "test"), ("aaa", "123"), ("bbb", "456"), ("ccc", "789")];
+        for (key, val) in test_pairs.clone().drain(..) {
+            tb.data_block.add(key.as_bytes(), val.as_bytes());
+        }
+        let block = Vec::from(tb.data_block.finish());
+        let mut bh = BlockHandle::new(0, 0);
+        tb.write_block(&block, &mut bh).unwrap();
+        let file = s.open("test").expect("file open should work");
+        let res = read_block(&file, true, &bh).unwrap();
+        assert_eq!(res, block);
+        let block = Block::new(res).unwrap();
+        let mut iter = block.iter(cmp);
+        iter.seek_to_first();
+        let mut result_pairs = vec![];
+        while iter.valid() {
+            result_pairs.push((iter.key().to_vec(), iter.value().to_vec()));
+            iter.next();
+        }
+        assert_eq!(result_pairs.len(), test_pairs.len());
+        for (p1, p2) in result_pairs.iter().zip(test_pairs) {
+            assert_eq!(p1.0.as_slice(), p2.0.as_bytes());
+            assert_eq!(p1.1.as_slice(), p2.1.as_bytes());
+        }
+    }
+
+    #[test]
+    fn test_table_write_and_read() {
+        let s = MemoryStorage::default();
+        let new_file = s.create("test").unwrap();
+        let mut o = Options::default();
+        let cmp = BytewiseComparator::default();
+        let mut tb = TableBuilder::new(new_file, cmp, o.clone());
+        let tests = vec![("", "test"), ("a", "aa"), ("b", "bb")];
+        for (key, val) in tests.clone().drain(..) {
+            tb.add(key.as_bytes(), val.as_bytes()).unwrap();
+        }
+        tb.finish(false).unwrap();
+        let file = s.open("test").unwrap();
+        let file_len = file.len().unwrap();
+        let table = Table::open(file, 0, file_len, o.clone(), cmp).unwrap();
+        let read_opt = ReadOptions {
+            verify_checksums: true,
+            fill_cache: true,
+            snapshot: None,
+        };
+        for (key, val) in tests.clone().drain(..) {
+            assert_eq!(
+                val.as_bytes(),
+                table
+                    .internal_get(read_opt, cmp, key.as_bytes())
+                    .unwrap()
+                    .unwrap()
+                    .value()
+            );
+        }
     }
 }
