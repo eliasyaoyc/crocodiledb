@@ -1,4 +1,4 @@
-mod bloom;
+pub mod bloom;
 mod cuckoo;
 
 pub trait FilterPolicy {

@@ -4,8 +4,8 @@ use crate::IResult;
 use std::path::{Path, PathBuf};
 use crate::error::Error;
 
-mod file;
-mod memory;
+pub mod file;
+pub mod memory;
 
 pub trait Storage: Sync + Send {
     type F: File + 'static;

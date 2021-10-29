@@ -4,7 +4,7 @@ use snap::raw::max_compress_len;
 use crate::cache::Cache;
 use crate::error::Error;
 use crate::IResult;
-use crate::iterator::Iter;
+use crate::iterator::{ConcatenateIterator, DerivedIterFactory, Iter};
 use crate::opt::{CompressionType, Options, ReadOptions};
 use crate::sstable::block::{Block, BlockBuilder, BlockIterator};
 use crate::sstable::filter_block::{FilterBlockBuilder, FilterBlockReader};
@@ -217,6 +217,16 @@ pub struct TableBuilder<F: File, C: Comparator> {
 
 impl<F: File, C: Comparator> TableBuilder<F, C> {
     pub fn new(file: F, c: C, options: Options) -> Self {
+        let fb = {
+            if let Some(policy) = options.filter_policy.clone() {
+                let mut f = FilterBlockBuilder::new(policy.clone());
+                f.start_block(0);
+                Some(f)
+            } else {
+                None
+            }
+        };
+
         Self {
             c: c.clone(),
             options: options.clone(),
@@ -227,7 +237,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
             last_key: vec![],
             num_entries: 0,
             closed: false,
-            filter_block: None,
+            filter_block: fb,
             pending_index_entry: false,
             pending_handle: BlockHandle::new(0, 0),
         }
@@ -336,7 +346,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
         let meta_block = {
             if has_filter_block {
                 let filter_key = if let Some(fp) = &self.options.filter_policy {
-                    "filter".to_owned() + fp.name()
+                    "filter.".to_owned() + fp.name()
                 } else {
                     String::from("")
                 };
@@ -358,7 +368,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
             &mut self.file,
             compressed.as_slice(),
             self.options.compression,
-            &mut self.pending_handle,
+            &mut index_block_handle,
             &mut self.offset,
         )?;
 
@@ -493,9 +503,7 @@ impl<F: File> Table<F> {
     /// Attempt to open the table that is stored in bytes `[0..size)`
     /// of `file`, and read the metadata entries necessary to allow
     /// retrieving data from the table.
-    ///
-    /// NOTE: `UC` for user comparator and `TC` for table comparator.
-    pub fn open<UC: Comparator, TC: Comparator>(
+    pub fn open<TC: Comparator>(
         file: F,
         file_number: u64,
         file_len: u64,
@@ -531,7 +539,7 @@ impl<F: File> Table<F> {
                     t.meta_block_handle = Some(footer.metaindex_handle);
                     let mut iter = meta_block.iter(c);
                     let filter_key = if let Some(fp) = &options.filter_policy {
-                        "filter".to_owned() + fp.name()
+                        "filter.".to_owned() + fp.name()
                     } else {
                         String::from("")
                     };
@@ -652,5 +660,72 @@ impl<F: File> Table<F> {
             return meta.offset;
         }
         0
+    }
+}
+
+pub struct TableIterFactory<C: Comparator, F: File> {
+    options: ReadOptions,
+    table: Arc<Table<F>>,
+    cmp: C,
+}
+
+impl<C: Comparator, F: File> DerivedIterFactory for TableIterFactory<C, F> {
+    type Iter = BlockIterator<C>;
+
+    fn derive(&self, value: &[u8]) -> IResult<Self::Iter> {
+        BlockHandle::decode_from(value).and_then(|(handle, _)| {
+            self.table.block_reader(self.cmp.clone(), handle, self.options)
+        })
+    }
+}
+
+pub type TableIterator<C, F> = ConcatenateIterator<BlockIterator<C>, TableIterFactory<C, F>>;
+
+/// Create a new `ConcatenateIterator` as table iterator.
+/// This iterator is able to yield all the key/values in the given `table` file
+///
+/// Entry format:
+///   key: internal key
+///   value: value of user key
+pub fn new_table_iterator<C: Comparator, F: File>(
+    cmp: C,
+    table: Arc<Table<F>>,
+    options: ReadOptions,
+) -> TableIterator<C, F> {
+    let index_iter = table.index_block.iter(cmp.clone());
+    let factory = TableIterFactory {
+        options,
+        table,
+        cmp,
+    };
+    ConcatenateIterator::new(index_iter, factory)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use crate::filter::bloom::BloomFilter;
+    use crate::opt::Options;
+    use crate::sstable::{Table, TableBuilder};
+    use crate::storage::memory::MemoryStorage;
+    use crate::storage::{File, Storage};
+    use crate::util::comparator::BytewiseComparator;
+
+    #[test]
+    fn test_build_empty_table_with_meta_block() {
+        let s = MemoryStorage::default();
+        let mut o = Options::default();
+        let cmp = BytewiseComparator::default();
+        let bf = BloomFilter::new(16);
+        o.filter_policy = Some(Arc::new(bf));
+        // let opt = Arc::new(o);
+        let new_file = s.create("test").unwrap();
+        let mut tb = TableBuilder::new(new_file, cmp.clone(), o.clone());
+        tb.finish(false).unwrap();
+        let file = s.open("test").unwrap();
+        let file_len = file.len().unwrap();
+        let table = Table::open(file, 0, file_len, o.clone(), cmp.clone()).unwrap();
+        assert!(table.filter_reader.is_some());
+        assert!(table.meta_block_handle.is_some());
     }
 }

@@ -23,7 +23,7 @@ pub const K_BLOCK_TRAILER_SIZE: usize = 5;
 /// block or a meta block.
 pub struct BlockHandle {
     pub offset: u64,
-    size: u64,
+    pub size: u64,
 }
 
 impl BlockHandle {
@@ -60,13 +60,6 @@ impl BlockHandle {
     }
 
     pub fn encode_to(&self, dst: &mut Vec<u8>) {
-        // Sanity check that all fields have been set.
-        assert_eq!(self.offset,
-                   0,
-                   "[BlockHandle] offset must be set, but got 0");
-        assert_eq!(self.size,
-                   0,
-                   "[BlockHandle] size must be set, but got 0");
         VarintU64::put_varint(dst, self.offset);
         VarintU64::put_varint(dst, self.size);
     }
