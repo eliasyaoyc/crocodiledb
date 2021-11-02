@@ -19,3 +19,6 @@ mod table_cache;
 
 pub use error::{Error, IResult};
 pub use memtable::skiplist;
+
+pub type DefaultHashBuilder = std::hash::BuildHasherDefault<fxhash::FxHasher>;
+pub type HashSet<K> = std::collections::HashSet<K, DefaultHashBuilder>;

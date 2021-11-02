@@ -120,7 +120,7 @@ impl<'a> Debug for ParsedInternalKey<'a> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Default,Clone, PartialEq, Eq)]
 pub struct InternalKey {
     data: Vec<u8>,
 }

@@ -1,2 +1,2 @@
-mod version_edit;
-mod version_set;
+pub mod version_edit;
+pub mod version_set;
