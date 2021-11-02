@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 /// used as keys in an sstable or a database. A Comaprator implementation
 /// must be thread-safe since it may invoke its methods concurrently
 /// from multiple threads.
-pub trait Comparator: Sync + Send + Clone{
+pub trait Comparator: Sync + Send + Clone + Default{
     /// Three-way  comparison. Returns value:
     /// Ordering::Less iff a < b
     /// Ordering::Equal iff a == b

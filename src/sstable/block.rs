@@ -34,7 +34,7 @@ use crate::util::comparator::Comparator;
 /// restarts[i] contains the offset within the block of the ith restart point.
 pub struct BlockBuilder<C: Comparator> {
     c: C,
-    options: Options,
+    options: Options<C>,
     buffer: Vec<u8>,
     restarts: Vec<u32>,
     counter: u32,
@@ -43,7 +43,7 @@ pub struct BlockBuilder<C: Comparator> {
 }
 
 impl<C: Comparator> BlockBuilder<C> {
-    pub fn new(options: Options, c: C) -> Self {
+    pub fn new(options: Options<C>, c: C) -> Self {
         assert!(options.block_restart_interval >= 1,
                 "[BlockBuilder] block restart interval must greater than 1, but got {}",
                 options.block_restart_interval);

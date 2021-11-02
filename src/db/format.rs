@@ -239,9 +239,9 @@ impl LookupKey {
 
 /// A comparator for internal keys that uses a specified comparator for
 /// the user key portion and breaks ties by decreasing sequence number.
-#[derive(Clone)]
+#[derive(Clone,Default)]
 pub struct InternalKeyComparator<C: Comparator> {
-    comparator: C,
+    pub comparator: C,
 }
 
 impl<C: Comparator> InternalKeyComparator<C> {
@@ -256,9 +256,15 @@ impl<C: Comparator> Comparator for InternalKeyComparator<C> {
             Ordering::Greater => Ordering::Greater,
             Ordering::Less => Ordering::Less,
             Ordering::Equal => {
-                let a_num = decode_fixed_64(&a[a.len() - INTERNAL_KEY_TAIL..]);
-                let b_num = decode_fixed_64(&b[b.len() - INTERNAL_KEY_TAIL..]);
-                a_num.cmp(&b_num)
+                let a_num = decode_fixed_64(&a[a.len() - INTERNAL_KEY_TAIL..]) >> INTERNAL_KEY_TAIL;
+                let b_num = decode_fixed_64(&b[b.len() - INTERNAL_KEY_TAIL..]) >> INTERNAL_KEY_TAIL;
+                if a_num > b_num{
+                    Ordering::Less
+                } else if a_num == b_num {
+                    Ordering::Equal
+                }else {
+                    Ordering::Greater
+                }
             }
         }
     }

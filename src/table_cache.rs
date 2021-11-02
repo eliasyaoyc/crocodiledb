@@ -14,12 +14,12 @@ pub struct TableCache<S: Storage + Clone, C: Comparator> {
     storage: S,
     cmp: C,
     db_name: String,
-    options: Options,
+    options: Options<C>,
     cache: Arc<dyn Cache<u64, Arc<Table<S::F>>>>,
 }
 
 impl<S: Storage + Clone, C: Comparator + 'static> TableCache<S, C> {
-    pub fn new(db_name: String, cmp: C, options: Options, size: usize, storage: S) -> Self {
+    pub fn new(db_name: String, cmp: C, options: Options<C>, size: usize, storage: S) -> Self {
         let cache = Arc::new(LRUCache::<u64, Arc<Table<S::F>>>::new(size));
         Self {
             storage,

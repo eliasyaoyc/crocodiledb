@@ -24,7 +24,8 @@ impl From<u8> for CompressionType {
 }
 
 #[derive(Clone)]
-pub struct Options {
+pub struct Options<C: Comparator> {
+    pub comparator: C,
     /// If true, the database will be created if it is missing.
     pub create_if_missing: bool,
 
@@ -114,9 +115,39 @@ pub struct Options {
     pub filter_policy: Option<Arc<dyn FilterPolicy>>,
 }
 
-impl Default for Options {
+impl<C: Comparator> Options<C> {
+    /// Maximum number of bytes in all compacted files.  We avoid expanding
+    /// the lower level file set of a compaction if it would make the
+    /// total compaction cover more than this many bytes.
+    pub fn expanded_compaction_byte_size_limit(&self) -> u64 {
+        (25 * self.max_file_size) as u64
+    }
+
+    /// Maximum bytes of overlaps in grandparents (i.e., level + 2) before we
+    /// stop building a single file in a level -> level + 1 compaction.
+    pub fn max_grandparent_overlap_bytes(&self) -> u64 {
+        (10 * self.max_file_size) as u64
+    }
+
+    /// Maximum bytes of total files in a given level
+    pub fn max_bytes_for_level(&self, mut level: usize) -> u64 {
+        // Note: the result for level zero is not really used since we set
+        // the level-0 compaction threshold based on number of files.
+
+        // Result for both level-0 and level-1.
+        let mut result = self.l1_max_bytes;
+        while level > 1 {
+            result *= 10;
+            level -= 1;
+        }
+        result
+    }
+}
+
+impl<C: Comparator> Default for Options<C> {
     fn default() -> Self {
         Options {
+            comparator: C::default(),
             create_if_missing: false,
             error_if_exists: false,
             paranoid_checks: false,
@@ -142,7 +173,7 @@ impl Default for Options {
 }
 
 /// Options that control read operations.
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub struct ReadOptions {
     // If true, all data read from underlying storage will be
     // verity against corresponding checksums.

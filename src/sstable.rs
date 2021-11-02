@@ -193,7 +193,7 @@ pub mod format;
 
 pub struct TableBuilder<F: File, C: Comparator> {
     c: C,
-    options: Options,
+    options: Options<C>,
     // Underlying sstable file.
     file: F,
     offset: u64,
@@ -216,7 +216,7 @@ pub struct TableBuilder<F: File, C: Comparator> {
 }
 
 impl<F: File, C: Comparator> TableBuilder<F, C> {
-    pub fn new(file: F, c: C, options: Options) -> Self {
+    pub fn new(file: F, c: C, options: Options<C>) -> Self {
         let fb = {
             if let Some(policy) = options.filter_policy.clone() {
                 let mut f = FilterBlockBuilder::new(policy.clone());
@@ -503,11 +503,13 @@ impl<F: File> Table<F> {
     /// Attempt to open the table that is stored in bytes `[0..size)`
     /// of `file`, and read the metadata entries necessary to allow
     /// retrieving data from the table.
-    pub fn open<TC: Comparator>(
+    ///
+    /// NOTICE: `UC` for user compactor and `TC` for table comparator.
+    pub fn open<UC: Comparator, TC: Comparator>(
         file: F,
         file_number: u64,
         file_len: u64,
-        options: Options,
+        options: Options<UC>,
         c: TC,
     ) -> IResult<Self>
     {
