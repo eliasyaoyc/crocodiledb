@@ -23,6 +23,7 @@ use crate::storage::{File, Storage};
 /// # Notice
 /// `MemoryStorage` do not support computing `.` or `..` in `Path` convenience.
 /// A `test/../test/a` will be treat as `test/test/a`.
+#[derive(Clone)]
 pub struct MemoryStorage {
     inner: Arc<RwLock<HashMap<String, Node>>>,
 

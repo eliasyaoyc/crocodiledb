@@ -34,7 +34,7 @@ use crate::util::comparator::Comparator;
 /// restarts[i] contains the offset within the block of the ith restart point.
 pub struct BlockBuilder<C: Comparator> {
     c: C,
-    options: Options<C>,
+    block_restart_interval: u32,
     buffer: Vec<u8>,
     restarts: Vec<u32>,
     counter: u32,
@@ -43,17 +43,17 @@ pub struct BlockBuilder<C: Comparator> {
 }
 
 impl<C: Comparator> BlockBuilder<C> {
-    pub fn new(options: Options<C>, c: C) -> Self {
-        assert!(options.block_restart_interval >= 1,
+    pub fn new(block_restart_interval: u32, c: C) -> Self {
+        assert!(block_restart_interval >= 1,
                 "[BlockBuilder] block restart interval must greater than 1, but got {}",
-                options.block_restart_interval);
+                block_restart_interval);
 
         let mut restarts = vec![];
         restarts.push(0); // First restart point is at offset 0.
 
         BlockBuilder {
             c,
-            options,
+            block_restart_interval,
             buffer: vec![],
             restarts,
             counter: 0,
@@ -77,15 +77,15 @@ impl<C: Comparator> BlockBuilder<C> {
     pub fn add(&mut self, key: &[u8], value: &[u8]) {
         assert!(!self.finished,
                 "[BlockBuilder] current block is over,so can't write.");
-        assert!(self.counter <= self.options.block_restart_interval,
+        assert!(self.counter <= self.block_restart_interval,
                 "[BlockBuilder] The number of restart nodes is greater than the configured number {}",
-                self.options.block_restart_interval);
+                self.block_restart_interval);
         assert!(self.empty() || self.c.compare(key, self.last_key.as_slice()) == Ordering::Greater,
                 "[BlockBuilder] Empty block or the key that you given greater than the last key {:?}",
                 self.last_key);
 
         let mut shared = 0;
-        if self.counter < self.options.block_restart_interval {
+        if self.counter < self.block_restart_interval {
             // See how much sharing to do with previous string.
             let min_length = min(self.last_key.len(), key.len());
             while shared < min_length && self.last_key[shared] == key[shared] {
@@ -428,12 +428,11 @@ mod tests {
     use crate::util::coding::{decode_fixed_32, put_fixed_32, VarintU32};
     use crate::util::comparator::BytewiseComparator;
     use std::str;
+    use std::sync::Arc;
 
     fn new_test_block() -> Vec<u8> {
         let mut samples = vec!["1", "12", "123", "abc", "abd", "acd", "bbb"];
-        let mut opt = Options::default();
-        opt.block_restart_interval = 3;
-        let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
+        let mut builder = BlockBuilder::new(3, BytewiseComparator::default());
         for key in samples.drain(..) {
             builder.add(key.as_bytes(), key.as_bytes());
         }
@@ -463,10 +462,10 @@ mod tests {
     #[test]
     fn test_new_empty_block() {
         let ucmp = BytewiseComparator::default();
-        let mut opt = Options::default();
+        let mut opt = Options::<BytewiseComparator>::default();
         opt.block_restart_interval = 2;
 
-        let mut builder = BlockBuilder::new(opt, ucmp);
+        let mut builder = BlockBuilder::new(opt.block_restart_interval, ucmp);
         let data = builder.finish();
         let length = data.len();
         let restarts_len = decode_fixed_32(&data[length - 4..length]);
@@ -490,10 +489,10 @@ mod tests {
     #[test]
     fn test_simple_empty_key() {
         let ucmp = BytewiseComparator::default();
-        let mut opt = Options::default();
+        let mut opt = Options::<BytewiseComparator>::default();
         opt.block_restart_interval = 2;
 
-        let mut builder = BlockBuilder::new(opt, ucmp);
+        let mut builder = BlockBuilder::new(opt.block_restart_interval, ucmp);
         builder.add(b"", b"test");
         let data = builder.finish();
         let block = Block::new(Vec::from(data)).unwrap();
@@ -511,20 +510,20 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_add_inconsistent_key() {
-        let mut opt = Options::default();
+        let mut opt = Options::<BytewiseComparator>::default();
         opt.block_restart_interval = 2;
 
-        let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
+        let mut builder = BlockBuilder::new(opt.block_restart_interval, BytewiseComparator::default());
         builder.add(b"ffffff", b"");
         builder.add(b"a", b"");
     }
 
     #[test]
     fn test_write_entries() {
-        let mut opt = Options::default();
+        let mut opt = Options::<BytewiseComparator>::default();
         opt.block_restart_interval = 3;
 
-        let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
+        let mut builder = BlockBuilder::new(opt.block_restart_interval, BytewiseComparator::default());
         assert!(builder.last_key.is_empty());
         // Basic key
         builder.add(b"1111", b"val1");
@@ -594,10 +593,10 @@ mod tests {
             (3, vec![0, 12, 27], 33),
         ];
         for (restarts_interval, expected, buffer_size) in tests {
-            let mut opt = Options::default();
+            let mut opt = Options::<BytewiseComparator>::default();
             opt.block_restart_interval = restarts_interval;
 
-            let mut builder = BlockBuilder::new(opt, BytewiseComparator::default());
+            let mut builder = BlockBuilder::new(opt.block_restart_interval, BytewiseComparator::default());
             for key in samples.clone() {
                 builder.add(key.as_bytes(), b"");
             }
@@ -652,10 +651,10 @@ mod tests {
     #[test]
     fn test_read_write() {
         let ucmp = BytewiseComparator::default();
-        let mut opt = Options::default();
+        let mut opt = Options::<BytewiseComparator>::default();
         opt.block_restart_interval = 2;
 
-        let mut builder = BlockBuilder::new(opt, ucmp);
+        let mut builder = BlockBuilder::new(opt.block_restart_interval, ucmp);
         let tests = vec![
             ("", "empty"),
             ("1111", "val1"),
@@ -691,10 +690,10 @@ mod tests {
         ];
         let mut blocks = vec![];
         for (k, v) in entries.clone() {
-            let mut opt = Options::default();
+            let mut opt = Options::<BytewiseComparator>::default();
             opt.block_restart_interval = 2;
 
-            let mut builder = BlockBuilder::new(opt, c);
+            let mut builder = BlockBuilder::new(opt.block_restart_interval, c);
             builder.add(k.as_bytes(), v.as_bytes());
             let data = builder.finish();
             blocks.push(Block::new(data.to_vec()).unwrap());

@@ -8,8 +8,8 @@
 //!
 //! The `Writer` crate represent write record into specified log.
 //! The `Reader` crate represent read record from specified log.
-mod writer;
-mod reader;
+pub mod writer;
+pub mod reader;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RecordType {
@@ -172,7 +172,7 @@ mod tests {
     }
 
     impl Reporter for ReportCollector {
-        fn corruption(&self, bytes: u64, reason: &str) -> IResult<()> {
+        fn corruption(&mut self, bytes: u64, reason: &str) -> IResult<()> {
             *self.dropped_bytes.borrow_mut() += bytes;
             self.message.borrow_mut().push_str(reason);
             Ok(())

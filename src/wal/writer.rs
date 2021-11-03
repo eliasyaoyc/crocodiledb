@@ -91,6 +91,11 @@ impl<F: File> Writer<F> {
         Ok(())
     }
 
+    /// Sync the underlying file
+    #[inline]
+    pub fn sync(&mut self) -> IResult<()> {
+        self.dest.flush()
+    }
 
     pub fn emit_physical_record(&mut self, t: RecordType, data: &[u8]) -> IResult<()> {
         let length = data.len();

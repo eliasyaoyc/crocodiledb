@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate num_derive;
+#[macro_use]
+extern crate log;
 
 mod error;
 mod db;
@@ -16,6 +18,7 @@ mod compaction;
 mod storage;
 pub mod snapshot;
 mod table_cache;
+mod batch;
 
 pub use error::{Error, IResult};
 pub use memtable::skiplist;

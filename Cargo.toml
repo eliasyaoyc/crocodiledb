@@ -15,6 +15,7 @@ fs2 = "0.4.3"
 rand = "0.8.4"
 thiserror = "1.0.29"
 tokio = { version = "1", features = ["rt", "net"] }
+log = "0.4.6"
 tracing-error = "0.1.2"
 tracing-subscriber = "0.2.24"
 snap = "1.0.0"

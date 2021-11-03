@@ -16,6 +16,8 @@ pub enum Error {
     CompressedFailed(#[from] snap::Error),
     #[error("UTF8 error:{0}")]
     UTF8Error(#[from] std::string::FromUtf8Error),
+    #[error("{0}")]
+    InvalidArgument(std::string::String),
 }
 
 

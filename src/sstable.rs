@@ -2,17 +2,21 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use snap::raw::max_compress_len;
 use crate::cache::Cache;
+use crate::db::format::{InternalKey, InternalKeyComparator};
 use crate::error::Error;
+use crate::filter::FilterPolicy;
 use crate::IResult;
-use crate::iterator::{ConcatenateIterator, DerivedIterFactory, Iter};
+use crate::iterator::{ConcatenateIterator, DerivedIterFactory, Iter, KMergeCore, KMergeIter};
 use crate::opt::{CompressionType, Options, ReadOptions};
 use crate::sstable::block::{Block, BlockBuilder, BlockIterator};
 use crate::sstable::filter_block::{FilterBlockBuilder, FilterBlockReader};
 use crate::sstable::format::{BlockHandle, Footer, K_BLOCK_TRAILER_SIZE, K_ENCODED_LENGTH, read_block};
-use crate::storage::File;
-use crate::util::coding::{decode_fixed_32, put_fixed_32, put_fixed_64};
+use crate::storage::{File, Storage};
+use crate::table_cache::TableCache;
+use crate::util::coding::{decode_fixed_32, decode_fixed_64, put_fixed_32, put_fixed_64};
 use crate::util::comparator::Comparator;
 use crate::util::crc32::{extend, hash, mask, unmask};
+use crate::version::{FILE_META_LENGTH, LevelFileNumIterator};
 
 pub mod filter_block;
 pub mod block;
@@ -193,7 +197,6 @@ pub mod format;
 
 pub struct TableBuilder<F: File, C: Comparator> {
     c: C,
-    options: Options<C>,
     // Underlying sstable file.
     file: F,
     offset: u64,
@@ -213,10 +216,16 @@ pub struct TableBuilder<F: File, C: Comparator> {
     // keys in the index block.
     pending_index_entry: bool,
     pending_handle: BlockHandle,
+
+    // Fields from `Options`
+    block_size: usize,
+    block_restart_interval: u32,
+    compression: CompressionType,
+    filter_policy: Option<Arc<dyn FilterPolicy>>,
 }
 
 impl<F: File, C: Comparator> TableBuilder<F, C> {
-    pub fn new(file: F, c: C, options: Options<C>) -> Self {
+    pub fn new<UC:Comparator>(file: F, c: C, options: &Arc<Options<UC>>) -> Self {
         let fb = {
             if let Some(policy) = options.filter_policy.clone() {
                 let mut f = FilterBlockBuilder::new(policy.clone());
@@ -229,17 +238,20 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
 
         Self {
             c: c.clone(),
-            options: options.clone(),
             file,
             offset: 0,
-            data_block: BlockBuilder::new(options.clone(), c.clone()),
-            index_block: BlockBuilder::new(options, c),
+            data_block: BlockBuilder::new(options.block_restart_interval, c.clone()),
+            index_block: BlockBuilder::new(options.block_restart_interval, c),
             last_key: vec![],
             num_entries: 0,
             closed: false,
             filter_block: fb,
             pending_index_entry: false,
             pending_handle: BlockHandle::new(0, 0),
+            block_size: options.block_size,
+            block_restart_interval: options.block_restart_interval,
+            compression: options.compression,
+            filter_policy: options.filter_policy.clone()
         }
     }
 
@@ -271,7 +283,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
         self.num_entries += 1;
         self.data_block.add(key, value);
 
-        if self.data_block.current_size_estimate() >= self.options.block_size {
+        if self.data_block.current_size_estimate() >= self.block_size {
             self.flush()?;
         }
         Ok(())
@@ -294,11 +306,11 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
 
             // If use this method that will encounter error "second mutable borrow occurs here".
             // self.write_block(data_block, &mut self.pending_handle)?;
-            let (compressed, compression) = compress_block(data_block, self.options.compression)?;
+            let (compressed, compression) = compress_block(data_block, self.compression)?;
             write_raw_block(
                 &mut self.file,
                 compressed.as_slice(),
-                self.options.compression,
+                self.compression,
                 &mut self.pending_handle,
                 &mut self.offset,
             )?;
@@ -342,10 +354,10 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
 
         // Write metaindex block
         let mut meta_block_handle = BlockHandle::new(0, 0);
-        let mut meta_block_builder = BlockBuilder::new(self.options.clone(), self.c.clone());
+        let mut meta_block_builder = BlockBuilder::new(self.block_restart_interval, self.c.clone());
         let meta_block = {
             if has_filter_block {
-                let filter_key = if let Some(fp) = &self.options.filter_policy {
+                let filter_key = if let Some(fp) = &self.filter_policy {
                     "filter.".to_owned() + fp.name()
                 } else {
                     String::from("")
@@ -363,11 +375,11 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
 
         // If use this method that will encounter error "second mutable borrow occurs here".
         // self.write_block(data_block, &mut self.pending_handle)?;
-        let (compressed, compression) = compress_block(index_block, self.options.compression)?;
+        let (compressed, compression) = compress_block(index_block, self.compression)?;
         write_raw_block(
             &mut self.file,
             compressed.as_slice(),
-            self.options.compression,
+            self.compression,
             &mut index_block_handle,
             &mut self.offset,
         )?;
@@ -434,7 +446,7 @@ impl<F: File, C: Comparator> TableBuilder<F, C> {
     }
 
     fn write_block(&mut self, raw_block: &[u8], handle: &mut BlockHandle) -> IResult<()> {
-        let (data, compression) = compress_block(raw_block, self.options.compression)?;
+        let (data, compression) = compress_block(raw_block, self.compression)?;
         write_raw_block(&mut self.file, &data, compression, handle, &mut self.offset)?;
         Ok(())
     }
@@ -509,7 +521,7 @@ impl<F: File> Table<F> {
         file: F,
         file_number: u64,
         file_len: u64,
-        options: Options<UC>,
+        options:  Arc<Options<UC>>,
         c: TC,
     ) -> IResult<Self>
     {
@@ -703,6 +715,170 @@ pub fn new_table_iterator<C: Comparator, F: File>(
     ConcatenateIterator::new(index_iter, factory)
 }
 
+pub struct FileIterFactory<S: Storage + Clone, C: Comparator> {
+    options: ReadOptions,
+    table_cache: TableCache<S, C>,
+    icmp: InternalKeyComparator<C>,
+}
+
+impl<S: Storage + Clone, C: Comparator> FileIterFactory<S, C> {
+    pub fn new(
+        icmp: InternalKeyComparator<C>,
+        options: ReadOptions,
+        table_cache: TableCache<S, C>,
+    ) -> Self {
+        Self {
+            options,
+            table_cache,
+            icmp,
+        }
+    }
+}
+
+impl<S: Storage + Clone, C: Comparator + 'static> DerivedIterFactory for FileIterFactory<S, C> {
+    type Iter = TableIterator<InternalKeyComparator<C>, S::F>;
+
+    // The value is a bytes with fixed encoded file number and fixed encoded file size
+    fn derive(&self, value: &[u8]) -> IResult<Self::Iter> {
+        if value.len() != FILE_META_LENGTH {
+            Err(Error::Corruption(
+                "file reader invoked with unexpected value",
+            ))
+        } else {
+            let file_number = decode_fixed_64(value);
+            let file_size = decode_fixed_64(&value[std::mem::size_of::<u64>()..]);
+            self.table_cache
+                .new_iter(self.icmp.clone(), self.options, file_number, file_size)
+        }
+    }
+}
+
+/// An iterator that yields all the entries stored in SST files.
+/// The inner implementation is mostly a merging iterator.
+pub struct SSTableIters<S: Storage + Clone, C: Comparator + 'static> {
+    pub cmp: InternalKeyComparator<C>,
+    pub level0: Vec<TableIterator<InternalKeyComparator<C>, S::F>>,
+    pub leveln: Vec<ConcatenateIterator<LevelFileNumIterator<C>, FileIterFactory<S, C>>>,
+}
+
+impl<S: Storage + Clone, C: Comparator> SSTableIters<S, C> {
+    pub fn new(
+        cmp: InternalKeyComparator<C>,
+        level0: Vec<TableIterator<InternalKeyComparator<C>, S::F>>,
+        leveln: Vec<ConcatenateIterator<LevelFileNumIterator<C>, FileIterFactory<S, C>>>,
+    ) -> Self
+    {
+        Self { cmp, level0, leveln }
+    }
+}
+
+impl<S: Storage + Clone, C: Comparator> KMergeCore for SSTableIters<S, C> {
+    type Cmp = InternalKeyComparator<C>;
+
+    fn cmp(&self) -> &Self::Cmp {
+        &self.cmp
+    }
+
+    fn iters_len(&self) -> usize {
+        self.level0.len() + self.leveln.len()
+    }
+
+    fn find_smallest(&mut self) -> usize {
+        let mut smallest: Option<&[u8]> = None;
+        let mut index = self.iters_len();
+        for (i, child) in self.level0.iter().enumerate() {
+            if self.smaller(&mut smallest, child) {
+                index = i;
+            }
+        }
+        for (i, child) in self.leveln.iter().enumerate() {
+            if self.smaller(&mut smallest, child) {
+                index = i + self.level0.len();
+            }
+        }
+        index
+    }
+
+    fn find_largest(&mut self) -> usize {
+        let mut largest: Option<&[u8]> = None;
+        let mut index = self.iters_len();
+        for (i, child) in self.level0.iter().enumerate() {
+            if self.larger(&mut largest, child) {
+                index = i;
+            }
+        }
+
+        for (i, child) in self.leveln.iter().enumerate() {
+            if self.larger(&mut largest, child) {
+                index = i + self.level0.len()
+            }
+        }
+        index
+    }
+
+    fn get_child(&self, i: usize) -> &dyn Iter {
+        if i < self.level0.len() {
+            self.level0.get(i).unwrap() as &dyn Iter
+        } else {
+            let current = i - self.level0.len();
+            self.leveln.get(current).unwrap() as &dyn Iter
+        }
+    }
+
+    fn get_child_mut(&mut self, i: usize) -> &mut dyn Iter {
+        if i < self.level0.len() {
+            self.level0.get_mut(i).unwrap() as &mut dyn Iter
+        } else {
+            let current = i - self.level0.len();
+            self.leveln.get_mut(current).unwrap() as &mut dyn Iter
+        }
+    }
+
+    fn for_each_child<F>(&mut self, mut f: F)
+        where
+            F: FnMut(&mut dyn Iter)
+    {
+        self.level0.iter_mut().for_each(|i| f(i as &mut dyn Iter));
+        self.leveln.iter_mut().for_each(|i| f(i as &mut dyn Iter));
+    }
+
+    fn for_not_ith<F>(&mut self, n: usize, mut f: F)
+        where
+            F: FnMut(&mut dyn Iter, &Self::Cmp)
+    {
+        if n < self.level0.len() {
+            for (i, child) in self.level0.iter_mut().enumerate() {
+                if i != n {
+                    f(child as &mut dyn Iter, &self.cmp)
+                }
+            }
+        } else {
+            let current = n - self.level0.len();
+            for (i, child) in self.leveln.iter_mut().enumerate() {
+                if i != current {
+                    f(child as &mut dyn Iter, &self.cmp)
+                }
+            }
+        }
+    }
+
+    fn take_err(&mut self) -> IResult<()> {
+        for child in self.level0.iter_mut() {
+            let status = child.status();
+            if status.is_err() {
+                return status;
+            }
+        }
+        for child in self.leveln.iter_mut() {
+            let status = child.status();
+            if status.is_err() {
+                return status;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -719,16 +895,17 @@ mod tests {
     #[test]
     fn test_build_empty_table_with_meta_block() {
         let s = MemoryStorage::default();
-        let mut o = Options::default();
+        let mut o = Options::<BytewiseComparator>::default();
         let cmp = BytewiseComparator::default();
         let bf = BloomFilter::new(16);
         o.filter_policy = Some(Arc::new(bf));
+        let opt = Arc::new(o);
         let new_file = s.create("test").unwrap();
-        let mut tb = TableBuilder::new(new_file, cmp.clone(), o.clone());
+        let mut tb = TableBuilder::new(new_file, cmp.clone(), &opt);
         tb.finish(false).unwrap();
         let file = s.open("test").unwrap();
         let file_len = file.len().unwrap();
-        let table = Table::open(file, 0, file_len, o.clone(), cmp.clone()).unwrap();
+        let table = Table::open(file, 0, file_len, opt.clone(), cmp.clone()).unwrap();
         assert!(table.filter_reader.is_some());
         assert!(table.meta_block_handle.is_some());
     }
@@ -737,9 +914,9 @@ mod tests {
     fn test_build_empty_table_without_meta_block() {
         let s = MemoryStorage::default();
         let new_file = s.create("test").unwrap();
-        let mut o = Options::default();
+        let mut o = Arc::new(Options::<BytewiseComparator>::default());
         let cmp = BytewiseComparator::default();
-        let mut tb = TableBuilder::new(new_file, cmp, o.clone());
+        let mut tb = TableBuilder::new(new_file, cmp, &o);
         tb.finish(false).unwrap();
         let file = s.open("test").unwrap();
         let file_len = file.len().unwrap();
@@ -757,8 +934,8 @@ mod tests {
     fn test_table_add_consistency() {
         let s = MemoryStorage::default();
         let new_file = s.create("test").expect("file create should work");
-        let mut o = Options::default();
-        let mut tb = TableBuilder::new(new_file, BytewiseComparator::default(), o.clone());
+        let mut o = Options::<BytewiseComparator>::default();
+        let mut tb = TableBuilder::new(new_file, BytewiseComparator::default(), &Arc::new(o));
         tb.add(b"222", b"").unwrap();
         tb.add(b"1", b"").unwrap();
     }
@@ -767,9 +944,9 @@ mod tests {
     fn test_block_write_and_read() {
         let s = MemoryStorage::default();
         let new_file = s.create("test").expect("file create should work");
-        let mut o = Options::default();
+        let mut o = Options::<BytewiseComparator>::default();
         let cmp = BytewiseComparator::default();
-        let mut tb = TableBuilder::new(new_file, cmp, o.clone());
+        let mut tb = TableBuilder::new(new_file, cmp, &Arc::new(o));
         let test_pairs = vec![("", "test"), ("aaa", "123"), ("bbb", "456"), ("ccc", "789")];
         for (key, val) in test_pairs.clone().drain(..) {
             tb.data_block.add(key.as_bytes(), val.as_bytes());
@@ -799,9 +976,9 @@ mod tests {
     fn test_table_write_and_read() {
         let s = MemoryStorage::default();
         let new_file = s.create("test").unwrap();
-        let mut o = Options::default();
+        let mut o = Arc::new(Options::<BytewiseComparator>::default());
         let cmp = BytewiseComparator::default();
-        let mut tb = TableBuilder::new(new_file, cmp, o.clone());
+        let mut tb = TableBuilder::new(new_file, cmp, &o);
         let tests = vec![("", "test"), ("a", "aa"), ("b", "bb")];
         for (key, val) in tests.clone().drain(..) {
             tb.add(key.as_bytes(), val.as_bytes()).unwrap();

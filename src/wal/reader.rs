@@ -20,7 +20,7 @@ struct Record {
 pub trait Reporter {
     /// Some corruption was detected. `size` is the approximate number
     /// of bytes dropped due to the corruption.
-    fn corruption(&self, bytes: u64, reason: &str) -> IResult<()>;
+    fn corruption(&mut self, bytes: u64, reason: &str) -> IResult<()>;
 }
 
 pub struct Reader<F: File> {
@@ -293,8 +293,8 @@ impl<F: File> Reader<F> {
     }
 
     /// Reports dropped bytes to the reporter.
-    fn report_drop(&self, bytes: u64, reason: &str) {
-        if let Some(reporter) = self.reporter.as_ref() {
+    fn report_drop(&mut self, bytes: u64, reason: &str) {
+        if let Some(reporter) = self.reporter.as_mut() {
             // make sure the bytes not overflows `the initial_offset`
             // and a special case is that we got a read error when we first read a block
             if self.end_of_buffer_offset  == 0
