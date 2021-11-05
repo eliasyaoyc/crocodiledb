@@ -25,7 +25,7 @@ impl Drop for ArenaCore {
 }
 
 impl Arena {
-    pub fn with_capacity(capacity: u32) -> Arena {
+    pub fn with_capacity(capacity: usize) -> Arena {
         let mut buf: Vec<u64> = Vec::with_capacity(capacity as usize / 8);
         let ptr = buf.as_mut_ptr() as *mut u8;
         let cap = buf.capacity() * 8;

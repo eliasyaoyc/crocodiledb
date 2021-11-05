@@ -6,7 +6,7 @@ use crate::iterator::Iter;
 use rand::Rng;
 use crate::IResult;
 use crate::memtable::arena::Arena;
-use crate::memtable::KeyComparator;
+use crate::util::comparator::Comparator;
 
 const MAX_HEIGHT: usize = 20;
 const HEIGHT_INCREASE: u32 = u32::MAX / 3;
@@ -68,7 +68,7 @@ pub struct Skiplist<C> {
 }
 
 impl<C> Skiplist<C> {
-    pub fn with_capacity(c: C, arena_size: u32) -> Skiplist<C> {
+    pub fn with_capacity(c: C, arena_size: usize) -> Skiplist<C> {
         let arena = Arena::with_capacity(arena_size);
         let head_offset = Node::alloc(Bytes::new(), Bytes::new(), MAX_HEIGHT - 1, &arena);
         let head = unsafe {
@@ -100,7 +100,7 @@ impl<C> Skiplist<C> {
     }
 }
 
-impl<C: KeyComparator> Skiplist<C> {
+impl<C: Comparator> Skiplist<C> {
     pub fn get(&self, key: &[u8]) -> Option<&Bytes> {
         if let Some((_, value)) = self.get_with_key(key) {
             Some(value)
@@ -111,7 +111,7 @@ impl<C: KeyComparator> Skiplist<C> {
     /// false if not found.
     pub fn get_with_key(&self, key: &[u8]) -> Option<(&Bytes, &Bytes)> {
         let node = unsafe { self.find_near(key, false, true) };
-        if !node.is_null() && self.c.same_key(&unsafe { &*node }.key, key) {
+        if !node.is_null() && self.c.compare(&unsafe { &*node }.key, key) == std::cmp::Ordering::Equal {
             return Some(unsafe {
                 (&(*node).key, &(*node).value)
             });
@@ -277,7 +277,7 @@ impl<C: KeyComparator> Skiplist<C> {
             // Notice `get_ptr` will advance the pointer
             let next_ptr = self.core.arena.get_ptr::<Node>(next_offset);
             let next_node = &*next_ptr;
-            match self.c.compare_key(key, &next_node.key) {
+            match self.c.compare(key, &next_node.key) {
                 std::cmp::Ordering::Greater => {
                     // cursor.key < next.key < key. We can continue to move right.
                     cursor = next_ptr;
@@ -347,7 +347,7 @@ impl<C: KeyComparator> Skiplist<C> {
             }
             let next_ptr = self.core.arena.get_ptr::<Node>(next_offset);
             let next_node = &*next_ptr;
-            match self.c.compare_key(key, &next_node.key) {
+            match self.c.compare(key, &next_node.key) {
                 std::cmp::Ordering::Equal => return (next_ptr, next_ptr),
                 std::cmp::Ordering::Less => return (before, next_ptr),
                 _ => before = next_ptr,
@@ -398,12 +398,12 @@ unsafe impl<C: Send> Send for Skiplist<C> {}
 
 unsafe impl<C: Sync> Sync for Skiplist<C> {}
 
-pub struct SkiplistIterator<C: KeyComparator> {
+pub struct SkiplistIterator<C: Comparator> {
     list: Skiplist<C>,
     cursor: *const Node,
 }
 
-impl<C: KeyComparator> SkiplistIterator<C> {
+impl<C: Comparator> SkiplistIterator<C> {
     pub fn new(list: Skiplist<C>) -> Self {
         Self {
             list,
@@ -412,7 +412,7 @@ impl<C: KeyComparator> SkiplistIterator<C> {
     }
 }
 
-impl<C: KeyComparator> Iter for SkiplistIterator<C> {
+impl<C: Comparator> Iter for SkiplistIterator<C> {
     fn valid(&self) -> bool {
         !self.cursor.is_null()
     }
@@ -479,6 +479,7 @@ mod tests {
     use super::*;
     use std::thread;
     use crate::memtable::key::FixedLengthSuffixComparator;
+    use crate::util::comparator::BytewiseComparator;
 
     fn new_value(v: usize) -> Bytes {
         Bytes::from(format!("{:05}", v))
@@ -490,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_find_near() {
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         for i in 0..1000 {
             let key = Bytes::from(format!("{:05}{:08}", i * 10 + 5, 0));
@@ -537,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         let key = b"aaa";
         for less in &[false, true] {
@@ -559,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         let table = vec![
             ("key1", new_value(42)),
@@ -582,8 +583,8 @@ mod tests {
         }
     }
 
-    fn test_concurrent_basic(n: usize, cap: u32, value_len: usize) {
-        let comp = FixedLengthSuffixComparator::new(8);
+    fn test_concurrent_basic(n: usize, cap: usize, value_len: usize) {
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, cap);
         let kvs: Vec<_> = (0..n)
             .map(|i| {
@@ -633,7 +634,7 @@ mod tests {
     #[test]
     fn test_one_key() {
         let n = 10000;
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         let key = key_with_ts("thekey", 0);
         let (tx, rx) = mpsc::channel();
@@ -683,7 +684,7 @@ mod tests {
     #[test]
     fn test_iterator_next() {
         let n = 100;
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         let mut iter_ref = SkiplistIterator::new(list.clone());
         assert!(!iter_ref.valid());
@@ -706,7 +707,7 @@ mod tests {
     #[test]
     fn test_iterator_prev() {
         let n = 100;
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         let mut iter_ref = SkiplistIterator::new(list.clone());
         assert!(!iter_ref.valid());
@@ -729,7 +730,7 @@ mod tests {
     #[test]
     fn test_iterator_seek() {
         let n = 100;
-        let comp = FixedLengthSuffixComparator::new(8);
+        let comp = BytewiseComparator::default();
         let list = Skiplist::with_capacity(comp, 1 << 20);
         let mut iter_ref = SkiplistIterator::new(list.clone());
         assert!(!iter_ref.valid());

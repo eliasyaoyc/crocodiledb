@@ -642,7 +642,7 @@ impl<S: Storage + Clone + 'static, C: Comparator + 'static> VersionSet<S, C> {
     /// Returns whether we need a new MANIFEST file for later usage.
     pub fn recover(&mut self) -> IResult<bool> {
         let env = self.storage.clone();
-        // Read "CURRENT" file, which contains a pointer to the current manifest file
+        // Read "CURRENT" file, which contains a pointer to the current used manifest file.
         let mut current = env.open(&generate_filename(&self.db_path, FileType::Current, 0))?;
         let mut buf = vec![];
         current.read_all(&mut buf)?;

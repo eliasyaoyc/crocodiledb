@@ -1,9 +1,13 @@
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{Receiver, Sender};
+use crate::batch::WriteBatch;
 use crate::db::filename::{FileType, generate_filename};
 use crate::db::format::{InternalKey, InternalKeyComparator};
 use crate::IResult;
 use crate::iterator::Iter;
-use crate::opt::{Options, ReadOptions};
+use crate::opt::{Options, ReadOptions, WriteOptions};
 use crate::sstable::TableBuilder;
 use crate::storage::Storage;
 use crate::table_cache::TableCache;
@@ -14,6 +18,49 @@ pub mod format;
 pub mod filename;
 pub mod iterator;
 
+/// A `DB` is a persistent ordered map from keys to values.
+/// A `DB` is safe for concurrent access from multiple threads without
+/// any external synchronization.
+pub trait DB {
+    /// The iterator that can yield all the kv pairs in `DB`.
+    type Iter;
+
+    /// Sets the value for the given key. It overwrites any previous value
+    /// for that key; a DB is not a multi-map
+    fn put(&self, write_opt: WriteOptions, key: &[u8], value: &[u8]) -> IResult<()>;
+}
+
+/// The wrapper of `DBImpl` for concurrency control.
+/// `CrocodileDB` is thread safe and is able to be shared by `clone()` in different thread.
+pub struct CrocodileDB<S: Storage + Clone + 'static, C: Comparator> {
+    inner: Arc<DBImpl<S, C>>,
+    shutdown_batch_processing_thread: (Sender<()>, Receiver<()>),
+    shutdown_compaction_thread: (Sender<()>, Receiver<()>),
+}
+
+pub struct DBImpl<S: Storage + Clone, C: Comparator> {
+    env: S,
+    internal_compactor: InternalKeyComparator<C>,
+    options: Arc<Options<C>>,
+    db_path: String,
+    db_lock: Option<S::F>,
+
+    // Write batch scheduling.
+    batch_queue: Mutex<VecDeque<BatchTask>>,
+
+    // Whether the db is closing.
+    is_shutting_down: AtomicBool,
+}
+
+/// A wrapper struct for scheduling `WriteBatch`.
+struct BatchTask {
+    // Flag for shutdown the batch processing thread gracefully.
+    stop_process: bool,
+    force_mem_compaction: bool,
+    batch: WriteBatch,
+    signal: Sender<IResult<()>>,
+    options: WriteOptions,
+}
 
 // Build a Table file from the contents of `iter`.  The generated file
 // will be named according to `meta.number`.  On success, the rest of
