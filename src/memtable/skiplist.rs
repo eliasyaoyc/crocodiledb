@@ -15,6 +15,7 @@ const HEIGHT_INCREASE: u32 = u32::MAX / 3;
 #[repr(C)]
 pub struct Node {
     key: Bytes,
+    // TODO: Consider remove the value field because do not use.
     value: Bytes,
     height: usize,
     // The actual size will vary depending on the height that a node was allocated with.

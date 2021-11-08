@@ -145,7 +145,7 @@ impl<C: Comparator> Iter for MemTableIterator<C> {
     }
 
     fn value(&self) -> &[u8] {
-        let mut value = self.iter.value();
+        let mut value = self.iter.key();
         extract_varint32_encoded_slice(&mut value);
         extract_varint32_encoded_slice(&mut value)
     }
