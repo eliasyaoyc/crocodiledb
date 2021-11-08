@@ -1,17 +1,17 @@
 use crate::db::format::ValueType;
-use crate::error::Error;
-use crate::IResult;
-use crate::memtable::MemTable;
-use crate::opt::WriteOptions;
 use crate::util::coding::{decode_fixed_32, decode_fixed_64, encode_fixed_32, encode_fixed_64, VarintU32};
+use crate::{Error, IResult};
+use crate::memtable::MemTable;
 use crate::util::comparator::Comparator;
 
 pub const HEADER_SIZE: usize = 12;
 
-/// `WriteBatch` holds a collection of updates to apply atomically to a `DB`.
+/// `WriteBatch` holds a collection of updates to apply atomically to a DB.
+///
 ///
 /// ```text
-/// The contents structure.
+///
+/// The contents structure:
 ///
 ///  +---------------------+
 ///  | sequence number (8) |  the starting seq number
@@ -28,12 +28,14 @@ pub const HEADER_SIZE: usize = 12;
 ///  +----------+--------------+----------+----------------+------------+
 ///
 /// ```
-/// The updates are applied in the order in which they are added to the `WriteBatch`.
+/// The updates are applied in the order in which they are added
+/// to the `WriteBatch`.
 ///
 /// Multiple threads can invoke all methods on a `WriteBatch` without
 /// external synchronization, but if any of the threads may call a
-/// non-cost method, all threads accessing the same `WriteBatch` must use
+/// non-const method, all threads accessing the same WriteBatch must use
 /// external synchronization.
+///
 #[derive(Clone)]
 pub struct WriteBatch {
     contents: Vec<u8>,
@@ -70,21 +72,37 @@ impl WriteBatch {
         self.contents.extend_from_slice(key);
     }
 
-    /// Copies the operations in `source` to this batch.
+    /// The size of the database changes caused by this batch.
+    #[inline]
+    pub fn approximate_size(&self) -> usize {
+        self.contents.len()
+    }
+
+    /// Copies the operations in "source" to this batch.
     pub fn append(&mut self, mut src: WriteBatch) {
         assert!(
             src.contents.len() >= HEADER_SIZE,
-            "[Batch] malformed WriteBatch(too small) to append."
+            "[batch] malformed WriteBatch (too small) to append"
         );
         self.set_count(self.get_count() + src.get_count());
-        self.contents.drain(0..HEADER_SIZE);
-        self.contents.append(&mut src.contents);
+        src.contents.drain(0..HEADER_SIZE);
+        self.contents.append(&mut src.contents)
     }
 
-    /// Insert all the records in the batch into the given `MemTable`.
+    /// Clears all updates buffered in this batch
+    #[inline]
+    pub fn clear(&mut self) {
+        self.contents.clear();
+        self.contents.resize(HEADER_SIZE, 0);
+        self.set_count(0);
+    }
+
+    /// Insert all the records in the batch into the given `MemTable`
     pub fn insert_into<C: Comparator>(&self, mem: &MemTable<C>) -> IResult<()> {
         if self.contents.len() < HEADER_SIZE {
-            return Err(Error::Corruption("[Bath] malformed WriteBatch too small."));
+            return Err(Error::Corruption(
+                "[batch] malformed WriteBatch (too small)",
+            ));
         }
         let mut s = &self.contents[HEADER_SIZE..];
         let mut found = 0;
@@ -102,7 +120,7 @@ impl WriteBatch {
                             continue;
                         }
                     }
-                    return Err(Error::Corruption("[Batch] bad WriteBatch put."));
+                    return Err(Error::Corruption("[batch] bad WriteBatch put"));
                 }
                 ValueType::KTypeDeletion => {
                     if let Some(key) = VarintU32::get_varint_prefixed_slice(&mut s) {
@@ -110,31 +128,23 @@ impl WriteBatch {
                         seq += 1;
                         continue;
                     }
-                    return Err(Error::Corruption("[Batch] bad WriteBatch delete."));
+                    return Err(Error::Corruption(
+                        "[batch] bad WriteBatch delete",
+                    ));
                 }
                 ValueType::UnKnown => {
-                    return Err(Error::Corruption("[Batch] unknown WriteBatch value type."));
+                    return Err(Error::Corruption(
+                        "[batch] unknown WriteBatch value type",
+                    ))
                 }
             }
         }
         if found != self.get_count() {
-            return Err(Error::Corruption("[Batch] WriteBatch has wrong count."));
+            return Err(Error::Corruption(
+                "[batch] WriteBatch has wrong count",
+            ));
         }
         Ok(())
-    }
-
-    /// Clears all updates buffered in this batch
-    #[inline]
-    pub fn clear(&mut self) {
-        self.contents.clear();
-        self.contents.resize(HEADER_SIZE, 0);
-        self.set_count(0);
-    }
-
-    /// The size of the database changes caused by this batch.
-    #[inline]
-    pub fn approximate_size(&self) -> usize {
-        self.contents.len()
     }
 
     #[inline]
@@ -171,7 +181,6 @@ impl WriteBatch {
         self.get_count() == 0
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -277,7 +286,7 @@ mod tests {
         b2.delete("foo".as_bytes());
         b1.append(b2.clone());
         assert_eq!(
-            "Put(a, va)@200|Put(b, vb)@202|Put(b, vb)@201|Delete(foo)@203|",
+            "Put(a, va)@200|Put(b, vb)@201|Put(b, vb)@202|Delete(foo)@203|",
             print_contents(&b1)
         );
     }
