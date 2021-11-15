@@ -22,6 +22,9 @@ snap = "1.0.0"
 num-derive = "0.3"
 num-traits = "0.2"
 fxhash = "0.2.1"
+crossbeam-channel = "0.4.0"
+crossbeam-utils = "0.7.0"
+#paxos-rs = { git = "https://github.com/eliasyaoyc/paxos-rs" }
 
 [dev-dependencies]
 criterion = "0.3.0"

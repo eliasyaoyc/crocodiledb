@@ -142,6 +142,11 @@ impl<C: Comparator> Options<C> {
         }
         result
     }
+
+    /// Reserve `non_table_cache_files` files or so far other uses and give the reset to `TableCache`.
+    pub fn table_cache_size(&self) -> usize {
+        self.max_open_files - self.non_table_cache_files
+    }
 }
 
 impl<C: Comparator> Default for Options<C> {

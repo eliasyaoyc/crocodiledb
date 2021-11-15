@@ -18,6 +18,10 @@ pub enum Error {
     UTF8Error(#[from] std::string::FromUtf8Error),
     #[error("{0}")]
     InvalidArgument(std::string::String),
+    #[error("try to operate a closed db {0}")]
+    DBClosed(std::string::String),
+    #[error("{0}")]
+    RecvError(crossbeam_channel::RecvError),
 }
 
 

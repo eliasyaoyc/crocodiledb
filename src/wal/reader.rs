@@ -303,4 +303,10 @@ impl<F: File> Reader<F> {
             }
         }
     }
+
+    /// Deliver the file's ownership.
+    #[inline]
+    pub fn into_file(self) -> F {
+        self.file
+    }
 }

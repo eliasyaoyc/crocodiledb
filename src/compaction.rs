@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
-use std::sync::mpsc::Sender;
+use crossbeam_channel::Sender;
 use crate::db::format::{InternalKey, InternalKeyComparator};
 use crate::IResult;
 use crate::iterator::{ConcatenateIterator, KMergeIter};
@@ -59,6 +59,7 @@ impl CompactionInputs {
     }
 }
 
+#[derive(Debug)]
 pub enum CompactionReason {
     MaxSize,
     SeekLimit,

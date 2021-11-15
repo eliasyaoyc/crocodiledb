@@ -29,6 +29,12 @@ impl<C: Comparator> MemTable<C> {
         MemTableIterator::new(skiplist)
     }
 
+    /// Returns current elements count in inner Skiplist
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
     /// Add an entry into memtable that maps key to value at the
     /// specified sequence number and with the specified type.
     /// Typically value will be empty if type==kTypeDeletion.
